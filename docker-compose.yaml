@@ -1,0 +1,162 @@
+version: '3.8'
+
+services:
+  # ========================================
+  # Frontend (React + Vite)
+  # ========================================
+  frontend:
+    build:
+      context: ./frontend
+      dockerfile: Dockerfile
+    image: resume-frontend
+    container_name: resume_frontend
+    networks:
+      - resume_net
+    depends_on:
+      - api
+    restart: unless-stopped
+
+  # ========================================
+  # Nginx (Production Reverse Proxy)
+  # ========================================
+  nginx:
+    build:
+      context: .
+      dockerfile: ./nginx/Dockerfile
+    image: resume-nginx
+    container_name: resume_nginx
+    ports:
+      - "80:80"
+    depends_on:
+      - api
+      - frontend
+    networks:
+      - resume_net
+    restart: unless-stopped
+
+  # ========================================
+  # Redis (for BullMQ queue)
+  # ========================================
+  redis:
+    image: redis:7-alpine
+    container_name: resume_redis
+    command: redis-server --appendonly yes --bind 0.0.0.0
+    ports:
+      - "6379:6379"
+    volumes:
+      - redis_data:/data
+    networks:
+      - resume_net
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 3s
+      timeout: 3s
+      retries: 20
+
+  # ========================================
+  # MongoDB (Database)
+  # ========================================
+  mongo:
+    image: mongo:7
+    container_name: resume_mongo
+    ports:
+      - "27017:27017"
+    environment:
+      - MONGO_INITDB_DATABASE=resume_db
+    volumes:
+      - mongo_data:/data/db
+    networks:
+      - resume_net
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD", "mongosh", "--quiet", "--eval", "db.runCommand({ ping: 1 }).ok"]
+      interval: 5s
+      timeout: 5s
+      retries: 15
+
+  # ========================================
+  # Python NLP Microservice
+  # ========================================
+  ml:
+    build:
+      context: ./backend/ml
+      dockerfile: Dockerfile
+    image: resume-nlp
+    container_name: resume_nlp
+    stdin_open: true
+    tty: true
+    networks:
+      - resume_net
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD", "python3", "-c", "print('ok')"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+  # ========================================
+  # Node.js API Server (index.js)
+  # ========================================
+  api:
+    build:
+      context: ./backend
+      dockerfile: Dockerfile
+    image: resume-api
+    container_name: resume_api
+    command: sh -c "sleep 5 && node index.js"
+    ports:
+      - "5000:5000"
+    env_file:
+      - ./backend/.env
+    depends_on:
+      redis:
+        condition: service_healthy
+      mongo:
+        condition: service_healthy
+      ml:
+        condition: service_started
+    volumes:
+      - ./backend/uploads:/app/uploads
+    networks:
+      - resume_net
+    restart: unless-stopped
+
+  # ========================================
+  # Node.js Worker (worker.js)
+  # ========================================
+  worker:
+    build:
+      context: ./backend
+      dockerfile: Dockerfile
+    image: resume-worker
+    container_name: resume_worker
+    command: sh -c "sleep 10 && node worker.js"
+    env_file:
+      - ./backend/.env
+    depends_on:
+      redis:
+        condition: service_healthy
+      mongo:
+        condition: service_healthy
+      ml:
+        condition: service_started
+      api:
+        condition: service_started
+    volumes:
+      - /var/run/docker.sock:/var/run/docker.sock
+    networks:
+      - resume_net
+    restart: unless-stopped
+
+# ========================================
+# Networks & Volumes
+# ========================================
+networks:
+  resume_net:
+    driver: bridge
+
+volumes:
+  mongo_data:
+  redis_data:
+
