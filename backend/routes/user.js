@@ -238,7 +238,7 @@ router.post("/upload", requireAuth(), upload.single("resume"), async (req, res) 
 
     // Send response to client
     res.json({
-      message: "Resume uploaded successfully ..... ✅",
+      message: "Resume uploaded successfully please wait for 5s....... ✅",
       resume: {
         id: resumeDoc._id,
         fileName: resumeDoc.fileName,
