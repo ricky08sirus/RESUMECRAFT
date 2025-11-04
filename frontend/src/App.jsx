@@ -20,7 +20,7 @@ import AuthPage from "./components/AuthPage";
 import Navbar from "./components/Navbar"; 
 import ResumeUpload from "./components/ResumeUpload";
 import JobDescription from "./components/JobDescription"; 
-import CustomizeResume from "./components/CustomizeResume";  // ✅ Added import
+import CustomizeResume from "./components/CustomizeResume";  
 
 const API_URL = import.meta.env.VITE_API_URL;
 
