@@ -135,7 +135,6 @@ export default function CustomizeResume() {
     
     try {
       const token = await getToken();
-      console.log("📤 Requesting LinkedIn teaser generation...");
       
       const res = await axios.post(
         `${API_URL}/generate-linkedin-teaser`,
@@ -148,14 +147,12 @@ export default function CustomizeResume() {
 
       if (res.data.success && res.data.jobId) {
         const jobId = res.data.jobId;
-        console.log(`✅ Teaser job queued: ${jobId}`);
         setTeaserJobId(jobId);
         pollTeaserStatus(jobId);
       } else {
         throw new Error("Failed to queue teaser generation");
       }
     } catch (err) {
-      console.error("❌ Teaser generation error:", err);
       setIsTeaserLoading(false);
       setError(err.response?.data?.error || "Failed to generate LinkedIn teaser. Please try again.");
     }
@@ -169,20 +166,16 @@ export default function CustomizeResume() {
     const pollInterval = setInterval(async () => {
       try {
         const token = await getToken();
-        console.log(`🔍 Polling teaser status (attempt ${attempt + 1}/${MAX_ATTEMPTS})...`);
         
         const res = await axios.get(`${API_URL}/teaser-status/${jobId}`, {
           headers: { Authorization: `Bearer ${token}` },
           timeout: 10000,
         });
 
-        console.log("📊 Teaser status:", res.data.status);
-
         if (res.data.status === "completed") {
           setLinkedinTeaser(res.data.teaser);
           setIsTeaserLoading(false);
           clearInterval(pollInterval);
-          console.log("✅ LinkedIn teaser received successfully");
         } else if (res.data.status === "failed") {
           throw new Error(res.data.error || "Teaser generation failed");
         }
@@ -192,7 +185,6 @@ export default function CustomizeResume() {
           throw new Error("Teaser generation timed out. Please try again.");
         }
       } catch (err) {
-        console.error("❌ Teaser polling error:", err);
         setIsTeaserLoading(false);
         setError(err.message || "Failed to retrieve teaser. Please retry.");
         clearInterval(pollInterval);
@@ -214,7 +206,7 @@ export default function CustomizeResume() {
       .trim();
   };
 
-  /* --------------------------- Premium Corporate PDF Download --------------------------- */
+  /* ==================== ULTRA-PREMIUM PDF GENERATION ==================== */
   const handleDownload = () => {
     if (!customizedResume) return;
 
@@ -230,213 +222,220 @@ export default function CustomizeResume() {
       compress: true 
     });
     
-    // Premium Color Palette
+    // Ultra-Premium Color Palette
     const colors = {
-      primary: [51, 51, 51],        // Dark charcoal for text
-      heading: [199, 84, 80],       // Professional coral red
-      subheading: [41, 128, 185],   // Professional blue
-      accent: [52, 73, 94],         // Dark blue-gray
-      light: [127, 140, 141],       // Light gray for secondary text
+      navy: [31, 41, 55],           // Deep navy
+      burgundy: [136, 14, 79],      // Rich burgundy
+      gold: [197, 155, 72],         // Luxury gold
+      royal: [37, 99, 235],         // Royal blue
+      charcoal: [45, 55, 72],       // Charcoal
+      slate: [100, 116, 139],       // Slate
+      black: [17, 24, 39],          // Rich black
     };
 
-    const margin = 55;
+    const margin = 45;
     const pageWidth = doc.internal.pageSize.getWidth();
     const pageHeight = doc.internal.pageSize.getHeight();
     const contentWidth = pageWidth - (margin * 2);
-    let yPos = margin;
+    let yPos = margin - 10;
 
-    // Helper: Add watermark at bottom
+    // Watermark at bottom
     const addWatermark = () => {
       doc.saveGraphicsState();
-      doc.setGState(new doc.GState({ opacity: 0.05 }));
-      doc.setFont("helvetica", "bold");
-      doc.setFontSize(10);
-      doc.setTextColor(0, 0, 0);
-      
-      const watermarkText = userName.toUpperCase();
-      const textWidth = doc.getTextWidth(watermarkText);
-      doc.text(watermarkText, (pageWidth - textWidth) / 2, pageHeight - 25);
-      
+      doc.setGState(new doc.GState({ opacity: 0.03 }));
+      doc.setFont("times", "italic");
+      doc.setFontSize(9);
+      doc.setTextColor(...colors.navy);
+      const wm = userName.toUpperCase();
+      const wmWidth = doc.getTextWidth(wm);
+      doc.text(wm, (pageWidth - wmWidth) / 2, pageHeight - 18);
       doc.restoreGraphicsState();
     };
 
-    // Helper: Add page number
-    const addPageNumber = (pageNum) => {
-      if (pageNum > 1) {
+    // Page number
+    const addPageNum = (num) => {
+      if (num > 1) {
         doc.setFont("helvetica", "normal");
-        doc.setFontSize(9);
-        doc.setTextColor(...colors.light);
-        doc.text(`${pageNum}`, pageWidth / 2, pageHeight - 30, { align: "center" });
+        doc.setFontSize(8);
+        doc.setTextColor(...colors.slate);
+        doc.text(`${num}`, pageWidth / 2, pageHeight - 30, { align: "center" });
       }
     };
 
-    // Add watermark
+    // Top accent bar
+    doc.setFillColor(...colors.burgundy);
+    doc.rect(0, 0, pageWidth, 3, "F");
+    
+    doc.setFillColor(...colors.gold);
+    doc.rect(0, 3, 50, 1, "F");
+    doc.rect(pageWidth - 50, 3, 50, 1, "F");
+
     addWatermark();
 
-    // USER NAME (Large, Bold)
-    doc.setFont("helvetica", "bold");
-    doc.setFontSize(28);
-    doc.setTextColor(...colors.heading);
-    doc.text(userName.toUpperCase(), margin, yPos);
-    yPos += 25;
+    yPos = margin + 15;
 
-    // Contact Information (Single Line)
-    doc.setFont("helvetica", "normal");
-    doc.setFontSize(9);
-    doc.setTextColor(...colors.primary);
-    
-    const contactParts = [];
-    if (userEmail) contactParts.push(userEmail);
-    if (userPhone) contactParts.push(userPhone);
-    
-    const contactLine = contactParts.join(' | ');
-    if (contactLine) {
-      doc.text(contactLine, margin, yPos);
-      yPos += 12;
+    // USER NAME - Large, Bold, Centered
+    doc.setFont("times", "bold");
+    doc.setFontSize(32);
+    doc.setTextColor(...colors.burgundy);
+    const nameWidth = doc.getTextWidth(userName.toUpperCase());
+    doc.text(userName.toUpperCase(), (pageWidth - nameWidth) / 2, yPos);
+    yPos += 20;
+
+    // CONTACT INFO - Centered
+    if (userEmail || userPhone) {
+      const contact = [];
+      if (userEmail) contact.push(userEmail);
+      if (userPhone) contact.push(userPhone);
+      
+      doc.setFont("helvetica", "normal");
+      doc.setFontSize(9);
+      doc.setTextColor(...colors.charcoal);
+      const contactLine = contact.join('  •  ');
+      const contactWidth = doc.getTextWidth(contactLine);
+      doc.text(contactLine, (pageWidth - contactWidth) / 2, yPos);
+      yPos += 16;
     }
 
-    // Separator Line
-    yPos += 8;
-    doc.setDrawColor(...colors.heading);
+    // ELEGANT DIVIDER
+    yPos += 5;
+    doc.setDrawColor(...colors.burgundy);
     doc.setLineWidth(1.5);
     doc.line(margin, yPos, pageWidth - margin, yPos);
-    yPos += 25;
+    
+    doc.setFillColor(...colors.gold);
+    doc.circle(margin, yPos, 2.5, "F");
+    doc.circle(pageWidth - margin, yPos, 2.5, "F");
+    
+    yPos += 22;
 
     let pageNum = 1;
 
-    // Process Resume Content with Justified Text
-    const cleanedText = cleanText(customizedResume);
-    const lines = cleanedText.split('\n');
+    // Process resume content
+    const cleaned = cleanText(customizedResume);
+    const lines = cleaned.split('\n');
+
+    const sections = [
+      'SUMMARY', 'PROFILE', 'OBJECTIVE',
+      'SKILLS', 'TECHNICAL SKILLS', 'COMPETENCIES',
+      'EXPERIENCE', 'WORK EXPERIENCE', 'PROFESSIONAL EXPERIENCE',
+      'EDUCATION', 'QUALIFICATIONS',
+      'CERTIFICATIONS', 'CERTIFICATES',
+      'PROJECTS', 'ACHIEVEMENTS', 'AWARDS'
+    ];
 
     for (let i = 0; i < lines.length; i++) {
       const line = lines[i].trim();
       
       if (!line) {
-        yPos += 6; // Small spacing for empty lines
+        yPos += 5;
         continue;
       }
 
-      // Check for page break
-      if (yPos > pageHeight - 90) {
-        addPageNumber(pageNum);
+      // Page break check
+      if (yPos > pageHeight - 70) {
+        addPageNum(pageNum);
         doc.addPage();
         pageNum++;
+        doc.setFillColor(...colors.burgundy);
+        doc.rect(0, 0, pageWidth, 3, "F");
+        doc.setFillColor(...colors.gold);
+        doc.rect(0, 3, 50, 1, "F");
+        doc.rect(pageWidth - 50, 3, 50, 1, "F");
         addWatermark();
-        yPos = margin;
+        yPos = margin + 10;
       }
 
-      // Detect if line is a section header (all caps or contains key section words)
-      const sectionKeywords = [
-        'SUMMARY', 'PROFILE', 'OBJECTIVE', 'ABOUT',
-        'SKILLS', 'TECHNICAL SKILLS', 'COMPETENCIES', 
-        'EXPERIENCE', 'WORK EXPERIENCE', 'EMPLOYMENT', 'PROFESSIONAL EXPERIENCE',
-        'EDUCATION', 'ACADEMIC', 'QUALIFICATIONS',
-        'PROJECTS', 'KEY PROJECTS',
-        'CERTIFICATIONS', 'CERTIFICATES',
-        'ACHIEVEMENTS', 'AWARDS', 'ACCOMPLISHMENTS',
-        'LANGUAGES', 'INTERESTS', 'HOBBIES', 'REFERENCES'
-      ];
-
-      const upperLine = line.toUpperCase();
-      const isSection = sectionKeywords.some(keyword => 
-        upperLine === keyword || 
-        upperLine.startsWith(keyword + ':') ||
-        upperLine.startsWith(keyword + ' -')
-      );
+      // Check if section header
+      const upper = line.toUpperCase();
+      const isSection = sections.some(s => upper === s || upper.startsWith(s + ':'));
 
       if (isSection) {
-        // Section Header
-        yPos += 10;
+        yPos += 12;
+        
+        // SECTION HEADER
         doc.setFont("helvetica", "bold");
         doc.setFontSize(12);
-        doc.setTextColor(...colors.subheading);
-        doc.text(line.toUpperCase().replace(/[:\-]/g, '').trim(), margin, yPos);
-        yPos += 6;
+        doc.setTextColor(...colors.royal);
+        doc.text(upper.replace(/[:\-]/g, '').trim(), margin, yPos);
         
-        // Underline
-        const headerWidth = doc.getTextWidth(line.toUpperCase().replace(/[:\-]/g, '').trim());
-        doc.setDrawColor(...colors.subheading);
-        doc.setLineWidth(1);
-        doc.line(margin, yPos, margin + headerWidth, yPos);
-        yPos += 18;
+        yPos += 4;
+        const hw = Math.min(doc.getTextWidth(upper) + 5, contentWidth * 0.4);
+        doc.setDrawColor(...colors.royal);
+        doc.setLineWidth(1.2);
+        doc.line(margin, yPos, margin + hw, yPos);
         
-      } else if (line.startsWith('•') || line.startsWith('-') || line.startsWith('*')) {
-        // Bullet Point
-        const bulletText = line.replace(/^[•\-*]\s*/, '').trim();
-        const bulletLines = doc.splitTextToSize(bulletText, contentWidth - 15);
+        doc.setFillColor(...colors.gold);
+        doc.circle(margin + hw + 3, yPos, 1.5, "F");
+        
+        yPos += 16;
+        
+      } else if (line.match(/^[•\-\*]\s/)) {
+        // BULLET POINT
+        const bulletText = line.replace(/^[•\-\*]\s*/, '').trim();
+        const bulletLines = doc.splitTextToSize(bulletText, contentWidth - 18);
         
         doc.setFont("helvetica", "normal");
         doc.setFontSize(10);
-        doc.setTextColor(...colors.primary);
+        doc.setTextColor(...colors.black);
         
-        bulletLines.forEach((bLine, idx) => {
-          if (yPos > pageHeight - 90) {
-            addPageNumber(pageNum);
+        bulletLines.forEach((bl, idx) => {
+          if (yPos > pageHeight - 70) {
+            addPageNum(pageNum);
             doc.addPage();
             pageNum++;
+            doc.setFillColor(...colors.burgundy);
+            doc.rect(0, 0, pageWidth, 3, "F");
+            doc.setFillColor(...colors.gold);
+            doc.rect(0, 3, 50, 1, "F");
+            doc.rect(pageWidth - 50, 3, 50, 1, "F");
             addWatermark();
-            yPos = margin;
+            yPos = margin + 10;
           }
           
           if (idx === 0) {
-            // Bullet point
-            doc.setFillColor(...colors.heading);
-            doc.circle(margin + 4, yPos - 3, 1.5, "F");
-            doc.text(bLine, margin + 15, yPos);
-          } else {
-            doc.text(bLine, margin + 15, yPos);
+            doc.setFillColor(...colors.royal);
+            doc.circle(margin + 6, yPos - 3, 2, "F");
+            doc.setFillColor(...colors.gold);
+            doc.circle(margin + 6, yPos - 3, 0.8, "F");
           }
+          
+          doc.text(bl, margin + 18, yPos);
           yPos += 13;
         });
         
       } else {
-        // Regular paragraph with justified text
+        // REGULAR TEXT - Left aligned (better readability)
         const textLines = doc.splitTextToSize(line, contentWidth);
         
         doc.setFont("helvetica", "normal");
         doc.setFontSize(10);
-        doc.setTextColor(...colors.primary);
+        doc.setTextColor(...colors.black);
         
-        textLines.forEach((tLine, idx) => {
-          if (yPos > pageHeight - 90) {
-            addPageNumber(pageNum);
+        textLines.forEach(tl => {
+          if (yPos > pageHeight - 70) {
+            addPageNum(pageNum);
             doc.addPage();
             pageNum++;
+            doc.setFillColor(...colors.burgundy);
+            doc.rect(0, 0, pageWidth, 3, "F");
+            doc.setFillColor(...colors.gold);
+            doc.rect(0, 3, 50, 1, "F");
+            doc.rect(pageWidth - 50, 3, 50, 1, "F");
             addWatermark();
-            yPos = margin;
+            yPos = margin + 10;
           }
           
-          const words = tLine.split(' ');
-          const isLastLine = idx === textLines.length - 1;
-          
-          // Justify all lines except the last one
-          if (!isLastLine && words.length > 3) {
-            const lineWidth = doc.getTextWidth(tLine);
-            const spaceToDistribute = contentWidth - lineWidth;
-            const spaceWidth = spaceToDistribute / (words.length - 1);
-            
-            let xPos = margin;
-            words.forEach((word, wIdx) => {
-              doc.text(word, xPos, yPos);
-              if (wIdx < words.length - 1) {
-                xPos += doc.getTextWidth(word + ' ') + spaceWidth;
-              }
-            });
-          } else {
-            doc.text(tLine, margin, yPos);
-          }
-          
+          doc.text(tl, margin, yPos);
           yPos += 13;
         });
         
-        yPos += 5; // Paragraph spacing
+        yPos += 3;
       }
     }
 
-    // Add final page number
-    addPageNumber(pageNum);
+    addPageNum(pageNum);
 
-    // Save
     doc.save(`${sanitizedName}_Professional_Resume.pdf`);
   };
 
@@ -566,7 +565,6 @@ export default function CustomizeResume() {
             {/* Metrics Cards */}
             {(matchScore || shortlistChance) && (
               <div className="grid md:grid-cols-2 gap-6">
-                {/* Match Score Card */}
                 {matchScore && (
                   <div className="bg-white/10 backdrop-blur-xl rounded-2xl p-8 shadow-xl border border-white/20 hover:bg-white/15 transition-all">
                     <div className="flex items-start justify-between mb-6">
@@ -599,7 +597,6 @@ export default function CustomizeResume() {
                   </div>
                 )}
 
-                {/* Shortlist Chance Card */}
                 {shortlistChance && (
                   <div className="bg-white/10 backdrop-blur-xl rounded-2xl p-8 shadow-xl border border-white/20 hover:bg-white/15 transition-all">
                     <div className="flex items-start justify-between mb-6">
@@ -721,7 +718,6 @@ export default function CustomizeResume() {
               </div>
 
               <div className="p-8">
-                {/* Loading State */}
                 {isTeaserLoading && (
                   <div className="text-center py-12">
                     <div className="relative">
@@ -742,7 +738,6 @@ export default function CustomizeResume() {
                   </div>
                 )}
 
-                {/* Error State (for teaser only) */}
                 {error && !isTeaserLoading && !linkedinTeaser && customizedResume && (
                   <div className="text-center py-12">
                     <div className="w-16 h-16 bg-red-500/20 rounded-2xl flex items-center justify-center mx-auto mb-4">
@@ -762,10 +757,8 @@ export default function CustomizeResume() {
                   </div>
                 )}
 
-                {/* Success State - LinkedIn Message */}
                 {linkedinTeaser && !isTeaserLoading && (
                   <div className="space-y-6">
-                    {/* Message Display */}
                     <div className="relative">
                       <div className="absolute -top-3 -left-3 w-16 h-16 bg-gradient-to-br from-purple-500 to-indigo-600 rounded-full opacity-20 blur-xl"></div>
                       <div className="absolute -bottom-3 -right-3 w-20 h-20 bg-gradient-to-br from-purple-500 to-pink-600 rounded-full opacity-20 blur-xl"></div>
@@ -791,7 +784,6 @@ export default function CustomizeResume() {
                           </p>
                         </div>
 
-                        {/* Character count */}
                         <div className="mt-4 flex items-center justify-between text-xs text-purple-300/70">
                           <span className="flex items-center gap-1">
                             <CheckCircle2 className="w-3 h-3" />
@@ -802,7 +794,6 @@ export default function CustomizeResume() {
                       </div>
                     </div>
 
-                    {/* Action Buttons */}
                     <div className="grid md:grid-cols-2 gap-4">
                       <button
                         onClick={copyTeaserToClipboard}
@@ -833,7 +824,6 @@ export default function CustomizeResume() {
                       </button>
                     </div>
 
-                    {/* Tips Section */}
                     <div className="bg-purple-500/10 rounded-xl p-6 border border-purple-500/20">
                       <div className="flex items-start gap-3">
                         <div className="w-8 h-8 bg-purple-500/20 rounded-lg flex items-center justify-center flex-shrink-0 mt-1">
@@ -865,7 +855,6 @@ export default function CustomizeResume() {
                       </div>
                     </div>
 
-                    {/* Regenerate Button */}
                     <div className="text-center pt-4">
                       <button
                         onClick={generateLinkedInTeaser}
@@ -878,7 +867,6 @@ export default function CustomizeResume() {
                   </div>
                 )}
 
-                {/* Initial State - No Teaser Yet */}
                 {!linkedinTeaser && !isTeaserLoading && !error && (
                   <div className="text-center py-16">
                     <div className="relative inline-block mb-6">
@@ -896,7 +884,6 @@ export default function CustomizeResume() {
                       Let our AI craft a compelling, personalized outreach message that highlights your strengths and increases your chances of connecting with recruiters and hiring managers.
                     </p>
 
-                    {/* Features Grid */}
                     <div className="grid md:grid-cols-3 gap-4 max-w-3xl mx-auto mb-8">
                       <div className="bg-white/5 rounded-xl p-4 border border-white/10">
                         <div className="w-10 h-10 bg-purple-500/20 rounded-lg flex items-center justify-center mx-auto mb-3">

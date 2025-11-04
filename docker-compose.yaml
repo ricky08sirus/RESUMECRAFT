@@ -2,22 +2,7 @@ version: '3.8'
 
 services:
   # ========================================
-  # Frontend (React + Vite)
-  # ========================================
-  frontend:
-    build:
-      context: ./frontend
-      dockerfile: Dockerfile
-    image: resume-frontend
-    container_name: resume_frontend
-    networks:
-      - resume_net
-    depends_on:
-      - api
-    restart: unless-stopped
-
-  # ========================================
-  # Nginx (Production Reverse Proxy)
+  # Nginx + Frontend (React build inside Nginx)
   # ========================================
   nginx:
     build:
@@ -29,7 +14,6 @@ services:
       - "80:80"
     depends_on:
       - api
-      - frontend
     networks:
       - resume_net
     restart: unless-stopped
