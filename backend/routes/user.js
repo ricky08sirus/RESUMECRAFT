@@ -12,17 +12,52 @@ import { requireAuth, getAuth } from "@clerk/express";
 import { clerkClient } from "@clerk/clerk-sdk-node";
 import { uploadToR2 } from "../r2.js";
 import { GoogleGenerativeAI } from "@google/generative-ai";
-import { Redis } from '@upstash/redis';
+import Redis from 'ioredis'; // Changed from @upstash/redis to ioredis
 import pLimit from "p-limit";
 
 const router = express.Router();
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = dirname(__filename);
+
+// ==================== LOCAL REDIS SETUP ====================
 const redis = new Redis({
-  url: process.env.REDIS_URL,
-  token: process.env.REDIS_TOKEN,
+  host: process.env.REDIS_HOST || '127.0.0.1',
+  port: parseInt(process.env.REDIS_PORT) || 6379,
+  password: process.env.REDIS_PASSWORD || undefined,
+  retryStrategy: (times) => {
+    const delay = Math.min(times * 50, 2000);
+    return delay;
+  },
+  maxRetriesPerRequest: 3,
 });
+
+// Redis connection event handlers
+redis.on('connect', () => {
+  console.log('✅ Redis connected successfully!');
+});
+
+redis.on('error', (err) => {
+  console.error('❌ Redis connection error:', err);
+});
+
+redis.on('ready', () => {
+  console.log('✅ Redis is ready to accept commands');
+});
+
+// Test Redis connection
+(async () => {
+  try {
+    await redis.set("test_key", "Hello Local Redis!");
+    const value = await redis.get("test_key");
+    console.log("✅ Redis test successful! Value:", value);
+    await redis.del("test_key"); // Clean up test key
+  } catch (err) {
+    console.error("❌ Redis test failed:", err);
+  }
+})();
+
 const limit = pLimit(1); // 1 Gemini call at a time
+
 function sleep(ms) {
   return new Promise((resolve) => setTimeout(resolve, ms));
 }
@@ -46,7 +81,6 @@ function safeParseGeminiResponse(rawText) {
   }
   return null;
 }
-
 
 async function safeGeminiCall(model, prompt, retries = 3) {
   for (let i = 0; i < retries; i++) {
@@ -73,21 +107,7 @@ function computeLocalMatch(resumeText, jobDescription) {
   return Math.round(Math.min(100, score));
 }
 
-
-
-
-// Test Redis connection (optional)
-(async () => {
-  try {
-    await redis.set("test_key", "Hello Upstash!");
-    const value = await redis.get("test_key");
-    console.log("✅ Redis connected successfully! Value:", value);
-  } catch (err) {
-    console.error("❌ Redis connection failed:", err);
-  }
-})();
 const genAI = new GoogleGenerativeAI(process.env.GEMINI_API_KEY);
-
 
 // ------------------
 // Multer & Upload Setup
@@ -116,8 +136,6 @@ const upload = multer({
     fileSize: 10 * 1024 * 1024, // 10MB limit
   },
 });
-
-
 
 // ------------------
 // User Sync Route
@@ -412,22 +430,29 @@ router.post("/job-description", requireAuth(), async (req, res) => {
     const cacheKey = `JD_CACHE_SHARED:${resumeHash}:${jobHash}`;
     console.log("🔍 Cache Key:", cacheKey);
 
-    // 🔹 Try cache first
-    const cached = await redis.get(cacheKey);
-    if (cached && cached.matchScore !== undefined) {
-      console.log("⚡ Cache HIT — returning stored result");
-      return res.json({
-        success: true,
-        message: "Fetched from cache ✅",
-        data: {
-          resumeId: resume._id.toString(),
-          matchScore: cached.matchScore,
-          jdAnalysis: cached.jdAnalysis,
-          jobDescription,
-        },
-        cached: true,
-        cacheType: "exact",
-      });
+    // 🔹 Try cache first (Local Redis)
+    try {
+      const cached = await redis.get(cacheKey);
+      if (cached) {
+        const parsedCache = JSON.parse(cached);
+        if (parsedCache && parsedCache.matchScore !== undefined) {
+          console.log("⚡ Cache HIT — returning stored result");
+          return res.json({
+            success: true,
+            message: "Fetched from cache ✅",
+            data: {
+              resumeId: resume._id.toString(),
+              matchScore: parsedCache.matchScore,
+              jdAnalysis: parsedCache.jdAnalysis,
+              jobDescription,
+            },
+            cached: true,
+            cacheType: "exact",
+          });
+        }
+      }
+    } catch (cacheErr) {
+      console.warn("⚠️ Cache read error:", cacheErr.message);
     }
 
     // 🧠 No Gemini — generate local realistic match score (30–70)
@@ -466,9 +491,17 @@ router.post("/job-description", requireAuth(), async (req, res) => {
     resume.matchScore = matchScore;
     await resume.save();
 
-    // 🔹 Cache result for 30 days
-    await redis.set(cacheKey, { matchScore, jdAnalysis: analysis }, { ex: 30 * 24 * 60 * 60 });
-    console.log("✅ Cached JD analysis successfully.");
+    // 🔹 Cache result for 30 days (Local Redis with JSON.stringify)
+    try {
+      const cacheData = JSON.stringify({ 
+        matchScore, 
+        jdAnalysis: analysis 
+      });
+      await redis.set(cacheKey, cacheData, 'EX', 30 * 24 * 60 * 60); // 30 days expiry
+      console.log("✅ Cached JD analysis successfully in local Redis.");
+    } catch (cacheErr) {
+      console.warn("⚠️ Cache write error:", cacheErr.message);
+    }
 
     // 🔹 Respond
     return res.json({
@@ -493,63 +526,11 @@ router.post("/job-description", requireAuth(), async (req, res) => {
   }
 });
 
-// router.get("/test-cache", async (req, res) => {
-//   try {
-//     const cacheKey = "test_key";
-
-//     // Store something in Redis
-//     await redis.set(cacheKey, { message: "Hello Redis Cache!" });
-
-//     // Retrieve from Redis
-//     const value = await redis.get(cacheKey);  // <- must await
-
-//     // Send valid JSON
-//     res.json({ cached: value });
-//   } catch (err) {
-//     console.error("❌ Redis test error:", err);
-//     res.status(500).json({ error: err.message });
-//   }
-// });
-
-
-
-// // Test route to view all Redis keys
-// // Test route to view all Redis keys
-// router.get("/view-redis", async (req, res) => {
-//   try {
-//     const keys = await redis.keys("*");
-//     const data = {};
-
-//     for (const key of keys) {
-//       const type = await redis.type(key); // get the type of the key
-
-//       switch (type) {
-//         case "string":
-//           data[key] = await redis.get(key);
-//           break;
-//         case "list":
-//           data[key] = await redis.lrange(key, 0, -1);
-//           break;
-//         case "hash":
-//           data[key] = await redis.hgetall(key);
-//           break;
-//         case "set":
-//           data[key] = await redis.smembers(key);
-//           break;
-//         case "zset":
-//           data[key] = await redis.zrange(key, 0, -1, { withScores: true });
-//           break;
-//         default:
-//           data[key] = `Unsupported type: ${type}`;
-//       }
-//     }
-
-//     console.log("🔹 Redis Data:", data);
-//     return res.json({ success: true, data });
-//   } catch (err) {
-//     console.error("❌ Redis fetch error:", err);
-//     return res.status(500).json({ error: err.message });
-//   }
-// });
+// Graceful shutdown - close Redis connection
+process.on('SIGTERM', async () => {
+  console.log('SIGTERM received, closing Redis connection...');
+  await redis.quit();
+  process.exit(0);
+});
 
 export default router;

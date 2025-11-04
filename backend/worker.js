@@ -48,17 +48,18 @@ const redisConfig = {
   maxRetriesPerRequest: null,
 };
 
+// Add password if provided (for local Redis with auth)
 if (process.env.REDIS_PASSWORD && process.env.REDIS_PASSWORD.trim() !== "") {
   redisConfig.password = process.env.REDIS_PASSWORD;
-  redisConfig.tls = { rejectUnauthorized: false };
-  console.log("📍 Worker using cloud Redis with TLS");
+  console.log("🔐 Worker using local Redis WITH password authentication");
 } else {
-  console.log("📍 Worker using local Redis without auth");
+  console.log("🔓 Worker using local Redis WITHOUT password");
 }
 
-console.log(`🔗 Worker connecting to Redis: ${redisConfig.host}:${redisConfig.port}`);
+// Remove TLS for local Redis (only needed for cloud services like Upstash)
+// TLS is now disabled for local Redis connection
 
-/* -------------------------------------------------------------------------- */
+console.log(`🔗 Worker connecting to Redis: ${redisConfig.host}:${redisConfig.port}`);/* -------------------------------------------------------------------------- */
 /*                           NLP Extraction Helper                            */
 /* -------------------------------------------------------------------------- */
 async function runNLPExtraction(resumeText) {

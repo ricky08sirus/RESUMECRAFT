@@ -19,26 +19,6 @@ services:
     restart: unless-stopped
 
   # ========================================
-  # Redis (for BullMQ queue)
-  # ========================================
-  redis:
-    image: redis:7-alpine
-    container_name: resume_redis
-    command: redis-server --appendonly yes --bind 0.0.0.0
-    ports:
-      - "6379:6379"
-    volumes:
-      - redis_data:/data
-    networks:
-      - resume_net
-    restart: unless-stopped
-    healthcheck:
-      test: ["CMD", "redis-cli", "ping"]
-      interval: 3s
-      timeout: 3s
-      retries: 20
-
-  # ========================================
   # MongoDB (Database)
   # ========================================
   mongo:
@@ -94,8 +74,6 @@ services:
     env_file:
       - ./backend/.env
     depends_on:
-      redis:
-        condition: service_healthy
       mongo:
         condition: service_healthy
       ml:
@@ -105,6 +83,8 @@ services:
     networks:
       - resume_net
     restart: unless-stopped
+    extra_hosts:
+      - "host.docker.internal:host-gateway"
 
   # ========================================
   # Node.js Worker (worker.js)
@@ -119,8 +99,6 @@ services:
     env_file:
       - ./backend/.env
     depends_on:
-      redis:
-        condition: service_healthy
       mongo:
         condition: service_healthy
       ml:
@@ -132,6 +110,8 @@ services:
     networks:
       - resume_net
     restart: unless-stopped
+    extra_hosts:
+      - "host.docker.internal:host-gateway"
 
 # ========================================
 # Networks & Volumes
@@ -142,5 +122,4 @@ networks:
 
 volumes:
   mongo_data:
-  redis_data:
 

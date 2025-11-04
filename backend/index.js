@@ -4,18 +4,77 @@ import dotenv from "dotenv";
 import cors from "cors";
 import mongoose from "mongoose";
 import { clerkMiddleware } from "@clerk/express";
-import userRoutes from "./routes/user.js"; // includes /upload, /sync, /job-description
+import userRoutes from "./routes/user.js";
+import customizeRoutes from "./routes/customize.js";
 import { fileURLToPath } from "url";
 import path from "path";
 import fs from "fs";
 import chalk from "chalk";
-import { GoogleGenerativeAI } from "@google/generative-ai"; // ✅ Added Gemini connectivity check
-import customizeRoutes from "./routes/customize.js";
+import { GoogleGenerativeAI } from "@google/generative-ai";
+import { Queue } from "bullmq"; // ✅ Added BullMQ
 
 dotenv.config();
 
 const app = express();
 const PORT = process.env.PORT || 5000;
+
+// ---------------------------
+// 🔴 LOCAL REDIS CONFIGURATION
+// ---------------------------
+const redisConfig = {
+  host: process.env.REDIS_HOST || "127.0.0.1",
+  port: Number(process.env.REDIS_PORT) || 6379,
+  connectTimeout: 30000,
+  retryStrategy: (times) => {
+    const delay = Math.min(times * 1000, 5000);
+    console.log(chalk.yellow(`🔄 Redis retry attempt ${times}, waiting ${delay}ms...`));
+    return delay;
+  },
+  maxRetriesPerRequest: null,
+};
+
+// Add password if provided (for local Redis with auth)
+if (process.env.REDIS_PASSWORD && process.env.REDIS_PASSWORD.trim() !== "") {
+  redisConfig.password = process.env.REDIS_PASSWORD;
+  console.log(chalk.green("🔐 Using local Redis WITH password authentication"));
+} else {
+  console.log(chalk.yellow("🔓 Using local Redis WITHOUT password"));
+}
+
+console.log(chalk.cyan(`🔗 Connecting to Redis: ${redisConfig.host}:${redisConfig.port}`));
+
+// ---------------------------
+// 🔴 INITIALIZE BULLMQ QUEUES
+// ---------------------------
+export const resumeProcessingQueue = new Queue("resume-processing", {
+  connection: redisConfig,
+});
+
+export const resumeCustomizationQueue = new Queue("resume-customization", {
+  connection: redisConfig,
+});
+
+export const linkedInTeaserQueue = new Queue("linkedin-teaser", {
+  connection: redisConfig,
+});
+
+console.log(chalk.green("✅ All BullMQ queues initialized with local Redis"));
+
+// ---------------------------
+// 🔴 REDIS CONNECTION TEST
+// ---------------------------
+async function testRedisConnection() {
+  try {
+    const jobCounts = await resumeProcessingQueue.getJobCounts();
+    console.log(chalk.green("✅ Redis connection successful!"));
+    console.log(chalk.cyan("📊 Resume Processing Queue Status:"), jobCounts);
+    return true;
+  } catch (err) {
+    console.error(chalk.red("❌ Redis connection failed:"), err.message);
+    console.error(chalk.yellow("⚠️  Make sure Redis is running: redis-server"));
+    return false;
+  }
+}
 
 // ---------------------------
 // 1️⃣ Fix __dirname for ES Modules
@@ -112,11 +171,46 @@ app.use((req, res, next) => {
 // 5️⃣ Routes
 // ---------------------------
 app.use("/user", userRoutes);
-app.use("/", customizeRoutes);  // ✅ FIXED: Register without /user prefix
+app.use("/", customizeRoutes);
 
 // ---------------------------
 // 6️⃣ Debug / Health Endpoints
 // ---------------------------
+
+// 🔹 Redis Queue Debug (NEW!)
+app.get("/debug/redis", async (req, res) => {
+  console.log(chalk.blue("🔍 /debug/redis called"));
+  
+  try {
+    const [processingCounts, customizationCounts, teaserCounts] = await Promise.all([
+      resumeProcessingQueue.getJobCounts(),
+      resumeCustomizationQueue.getJobCounts(),
+      linkedInTeaserQueue.getJobCounts(),
+    ]);
+
+    res.json({
+      status: "✅ Connected",
+      connection: {
+        host: redisConfig.host,
+        port: redisConfig.port,
+        hasPassword: !!redisConfig.password,
+      },
+      queues: {
+        "resume-processing": processingCounts,
+        "resume-customization": customizationCounts,
+        "linkedin-teaser": teaserCounts,
+      },
+      timestamp: new Date().toISOString(),
+    });
+  } catch (err) {
+    console.error(chalk.red("❌ Redis Debug Failed:"), err.message);
+    res.status(500).json({
+      status: "❌ Failed",
+      error: err.message,
+      suggestion: "Make sure Redis is running: redis-server",
+    });
+  }
+});
 
 // 🔹 Gemini & Env Debug
 app.get("/debug/gemini", async (req, res) => {
@@ -136,6 +230,8 @@ app.get("/debug/gemini", async (req, res) => {
     geminiKeyLoaded: !!geminiKey,
     geminiStatus,
     mongoURI: process.env.MONGO_URI ? "✅ Loaded" : "❌ Missing",
+    redisHost: process.env.REDIS_HOST || "127.0.0.1",
+    redisPort: process.env.REDIS_PORT || 6379,
     frontendURL: process.env.FRONTEND_URL,
     timestamp: new Date().toISOString(),
   });
@@ -156,6 +252,10 @@ app.get("/", (req, res) => {
   res.json({
     message: "Resume Processing API running ✅",
     version: "1.0.0",
+    services: {
+      mongodb: mongoose.connection.readyState === 1 ? "✅ Connected" : "❌ Disconnected",
+      redis: "✅ Initialized (check /debug/redis for details)",
+    },
     timestamp: new Date().toISOString(),
   });
 });
@@ -190,21 +290,43 @@ app.use((err, req, res, next) => {
 // 9️⃣ Start Server
 // ---------------------------
 app.listen(PORT, async () => {
-  console.log(chalk.magentaBright("\n--------------------------------------------------------------"));
+  console.log(chalk.magentaBright("\n" + "=".repeat(70)));
   console.log(chalk.greenBright(`🚀 Server running on http://localhost:${PORT}`));
-  console.log(chalk.cyan(`🩵 Health check:`), `http://localhost:${PORT}/`);
-  console.log(chalk.cyan(`📬 User sync:`), `http://localhost:${PORT}/user/sync`);
-  console.log(chalk.cyan(`📤 Resume upload:`), `http://localhost:${PORT}/user/upload`);
-  console.log(chalk.cyan(`🧠 JD analysis:`), `http://localhost:${PORT}/user/job-description`);
-  console.log(chalk.cyan(`✨ Customize resume:`), `http://localhost:${PORT}/customize-resume`);  // ✅ Added
-  console.log(chalk.cyan(`📊 Job status:`), `http://localhost:${PORT}/resume-job-status/:jobId`);  // ✅ Added
-  console.log(chalk.cyan(`🧩 Gemini debug:`), `http://localhost:${PORT}/debug/gemini`);
-  console.log(chalk.cyan(`📁 Static uploads:`), `http://localhost:${PORT}/uploads/<filename>`);
-  console.log(chalk.magentaBright("--------------------------------------------------------------"));
-  console.log(chalk.yellowBright("🌍 Environment Debug:"));
-  console.log("  ➤ PORT:", PORT);
-  console.log("  ➤ MONGO_URI:", process.env.MONGO_URI ? "✅ Loaded" : "❌ Missing");
-  console.log("  ➤ GEMINI_API_KEY:", process.env.GEMINI_API_KEY ? "✅ Loaded" : "❌ Missing");
-  console.log("  ➤ FRONTEND_URL:", process.env.FRONTEND_URL || "http://localhost:5173");
-  console.log(chalk.magentaBright("--------------------------------------------------------------\n"));
+  console.log(chalk.magentaBright("=".repeat(70)));
+  
+  console.log(chalk.cyan("\n📍 API Endpoints:"));
+  console.log(chalk.white(`  ➤ Health check:      http://localhost:${PORT}/`));
+  console.log(chalk.white(`  ➤ User sync:         http://localhost:${PORT}/user/sync`));
+  console.log(chalk.white(`  ➤ Resume upload:     http://localhost:${PORT}/user/upload`));
+  console.log(chalk.white(`  ➤ JD analysis:       http://localhost:${PORT}/user/job-description`));
+  console.log(chalk.white(`  ➤ Customize resume:  http://localhost:${PORT}/customize-resume`));
+  console.log(chalk.white(`  ➤ Job status:        http://localhost:${PORT}/resume-job-status/:jobId`));
+  
+  console.log(chalk.cyan("\n🔍 Debug Endpoints:"));
+  console.log(chalk.white(`  ➤ Redis status:      http://localhost:${PORT}/debug/redis`));
+  console.log(chalk.white(`  ➤ Gemini status:     http://localhost:${PORT}/debug/gemini`));
+  console.log(chalk.white(`  ➤ CORS test:         http://localhost:${PORT}/debug/cors`));
+  console.log(chalk.white(`  ➤ Static uploads:    http://localhost:${PORT}/uploads/<filename>`));
+  
+  console.log(chalk.magentaBright("\n" + "=".repeat(70)));
+  console.log(chalk.yellowBright("🌍 Environment Configuration:"));
+  console.log(chalk.white("  ➤ PORT:"), PORT);
+  console.log(chalk.white("  ➤ MONGO_URI:"), process.env.MONGO_URI ? "✅ Loaded" : "❌ Missing");
+  console.log(chalk.white("  ➤ GEMINI_API_KEY:"), process.env.GEMINI_API_KEY ? "✅ Loaded" : "❌ Missing");
+  console.log(chalk.white("  ➤ REDIS_HOST:"), redisConfig.host);
+  console.log(chalk.white("  ➤ REDIS_PORT:"), redisConfig.port);
+  console.log(chalk.white("  ➤ REDIS_PASSWORD:"), redisConfig.password ? "✅ Set" : "❌ Not Set");
+  console.log(chalk.white("  ➤ FRONTEND_URL:"), process.env.FRONTEND_URL || "http://localhost:5173");
+  console.log(chalk.magentaBright("=".repeat(70)));
+  
+  // Test Redis connection
+  console.log(chalk.yellow("\n⏳ Testing Redis connection..."));
+  const redisConnected = await testRedisConnection();
+  
+  if (redisConnected) {
+    console.log(chalk.green("✅ All systems operational!\n"));
+  } else {
+    console.log(chalk.red("⚠️  Redis not connected. Queue operations may fail."));
+    console.log(chalk.yellow("💡 Start Redis with: redis-server\n"));
+  }
 });
