@@ -1,6 +1,7 @@
 import React, { useState, useEffect } from 'react';
 import { UserButton, useUser } from '@clerk/clerk-react';
-import { Menu, X, Sparkles, Home, LayoutDashboard, Settings, Bell } from 'lucide-react';
+import { Menu, X, Bell } from 'lucide-react';
+import logo from '../assets/resunexi.ico';
 
 export default function Navbar() {
   const { user } = useUser();
@@ -16,9 +17,7 @@ export default function Navbar() {
   }, []);
 
   const navLinks = [
-    
     // { name: 'Dashboard', icon: LayoutDashboard, href: '#' },
-   
   ];
 
   return (
@@ -32,15 +31,19 @@ export default function Navbar() {
       <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
         <div className="flex items-center justify-between h-16 md:h-20">
           {/* Logo */}
-          <div className="flex items-center space-x-3 group cursor-pointer">
-            <div className="relative">
-              <div className="absolute inset-0 bg-gradient-to-r from-violet-600 to-indigo-600 rounded-xl blur-lg opacity-60 group-hover:opacity-100 transition-opacity duration-300"></div>
-              <div className="relative bg-gradient-to-r from-violet-600 to-indigo-600 p-2 rounded-xl">
-                <Sparkles className="w-6 h-6 text-white" />
-              </div>
-            </div>
-            <span className="text-2xl font-bold bg-gradient-to-r from-violet-600 to-indigo-600 bg-clip-text text-transparent">
-              ResumeCraft
+          <div className="flex items-center space-x-2 cursor-pointer">
+            <img 
+              src={logo} 
+              alt="ResuNexi Logo" 
+              className="w-20 h-20 object-contain"   // ⬅️ Increased size from w-12 h-12
+              style={{
+                imageRendering: 'crisp-edges',
+                WebkitFontSmoothing: 'antialiased',
+                filter: 'contrast(1.2) saturate(1.3) brightness(1.1)',
+              }}
+            />
+            <span className="text-2xl font-bold bg-gradient-to-r from-pink-600 via-purple-600 to-indigo-600 bg-clip-text text-transparent">
+              ResuNexi
             </span>
           </div>
 
@@ -150,3 +153,4 @@ export default function Navbar() {
     </nav>
   );
 }
+
