@@ -12,11 +12,16 @@ services:
     container_name: resume_nginx
     ports:
       - "80:80"
+      - "443:443"
     depends_on:
       - api
     networks:
       - resume_net
     restart: unless-stopped
+    volumes:
+      - ./nginx/conf.d:/etc/nginx/conf.d
+      - ./certbot/conf:/etc/letsencrypt
+      - ./certbot/www:/var/www/certbot
 
   # ========================================
   # MongoDB (Database)
@@ -112,6 +117,20 @@ services:
     restart: unless-stopped
     extra_hosts:
       - "host.docker.internal:host-gateway"
+
+  # ========================================
+  # Certbot (Let's Encrypt for HTTPS)
+  # ========================================
+  certbot:
+    image: certbot/certbot
+    container_name: resume_certbot
+    volumes:
+      - ./certbot/conf:/etc/letsencrypt
+      - ./certbot/www:/var/www/certbot
+    networks:
+      - resume_net
+    entrypoint: /bin/sh
+    command: -c "trap exit TERM; while :; do sleep 6h & wait $${!}; certbot renew --quiet && nginx -s reload; done"
 
 # ========================================
 # Networks & Volumes
