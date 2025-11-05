@@ -1,0 +1,20 @@
+# --- Environment & secrets ---
+backend/.env
+.env
+*.env
+
+# --- Nginx local configs ---
+nginx/conf.d/*
+!nginx/conf.d/example.conf  # keep one safe template if needed
+
+# --- Certificates & certbot data ---
+certbot/
+*.pem
+*.key
+
+# --- Local Docker data ---
+mongo_data/
+__pycache__/
+node_modules/
+uploads/
+
