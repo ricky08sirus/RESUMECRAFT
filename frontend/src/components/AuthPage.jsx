@@ -1,6 +1,7 @@
 import React, { useState, useEffect } from "react";
 import { SignInButton, SignUpButton } from "@clerk/clerk-react";
-import { Sparkles, FileText, Zap, CheckCircle, ArrowRight, Star } from "lucide-react";
+import { FileText, Zap, CheckCircle, ArrowRight, Star } from "lucide-react";
+import logo from '../assets/resunexi.ico';
 
 export default function AuthPage() {
   const [mousePosition, setMousePosition] = useState({ x: 0, y: 0 });
@@ -15,7 +16,7 @@ export default function AuthPage() {
   }, []);
 
   const features = [
-    { icon: Sparkles, text: "AI-Powered Resume Builder", color: "from-violet-500 to-purple-500" },
+    { icon: FileText, text: "AI-Powered Resume Builder", color: "from-violet-500 to-purple-500" },
     { icon: FileText, text: "Professional Templates", color: "from-blue-500 to-cyan-500" },
     { icon: Zap, text: "Instant PDF Export", color: "from-orange-500 to-pink-500" },
   ];
@@ -24,12 +25,12 @@ export default function AuthPage() {
   {
     name: "Sarah Chen",
     role: "Software Engineer @ Google",
-    text: "I always thought only my technical skills mattered. But this platform taught me that how you present yourself — your words, your story — can be the real game changer. My AI-generated resume literally got me callbacks I’d been dreaming about for years.",
+    text: "I always thought only my technical skills mattered. But this platform taught me that how you present yourself — your words, your story — can be the real game changer. My AI-generated resume literally got me callbacks I'd been dreaming about for years.",
   },
   {
     name: "Michael Ross",
     role: "Product Manager @ Microsoft",
-    text: "I realized interviews begin long before you speak — they start with your resume. This tool didn’t just help me write better, it helped me express my impact clearly. It’s like having a professional storyteller by your side.",
+    text: "I realized interviews begin long before you speak — they start with your resume. This tool didn't just help me write better, it helped me express my impact clearly. It's like having a professional storyteller by your side.",
   },
   {
     name: "Emily Davis",
@@ -39,27 +40,27 @@ export default function AuthPage() {
   {
     name: "Aarav Mehta",
     role: "Data Analyst @ Deloitte",
-    text: "I learned that sometimes it’s not about adding more — it’s about saying the right things with clarity. This platform helped me simplify my resume, highlight real achievements, and build confidence before every application.",
+    text: "I learned that sometimes it's not about adding more — it's about saying the right things with clarity. This platform helped me simplify my resume, highlight real achievements, and build confidence before every application.",
   },
   {
     name: "Olivia Martinez",
     role: "Marketing Specialist @ HubSpot",
-    text: "I didn’t have a fancy degree, but this platform helped me tell my journey authentically. My story — not just my experience — is what got me noticed. Sometimes, it’s not your skills; it’s how your words make others feel.",
+    text: "I didn't have a fancy degree, but this platform helped me tell my journey authentically. My story — not just my experience — is what got me noticed. Sometimes, it's not your skills; it's how your words make others feel.",
   },
   {
     name: "Rohit Sharma",
     role: "Backend Developer @ Amazon",
-    text: "Before this, I used to copy generic templates. This tool made me understand that personalization is everything. My resume now reflects who I am, not just what I’ve done — and recruiters noticed that difference instantly.",
+    text: "Before this, I used to copy generic templates. This tool made me understand that personalization is everything. My resume now reflects who I am, not just what I've done — and recruiters noticed that difference instantly.",
   },
   {
     name: "Mia Thompson",
     role: "AI Research Intern @ OpenAI",
-    text: "This isn’t just a resume builder — it’s a confidence builder. It reminded me that storytelling is a skill every professional needs. I found my voice through this platform.",
+    text: "This isn't just a resume builder — it's a confidence builder. It reminded me that storytelling is a skill every professional needs. I found my voice through this platform.",
   },
   {
     name: "Liam Johnson",
     role: "Cybersecurity Engineer @ Palo Alto Networks",
-    text: "I learned that even the best skills can go unnoticed if not communicated well. The AI didn’t just fix my words — it helped me express my value like never before. Every job seeker needs this clarity.",
+    text: "I learned that even the best skills can go unnoticed if not communicated well. The AI didn't just fix my words — it helped me express my value like never before. Every job seeker needs this clarity.",
   },
 ];
 
@@ -87,8 +88,16 @@ export default function AuthPage() {
             <div className="flex items-center space-x-3 mb-3">
               <div className="relative group">
                 <div className="absolute inset-0 bg-gradient-to-r from-violet-600 to-indigo-600 rounded-2xl blur-xl opacity-75 group-hover:opacity-100 transition duration-300"></div>
-                <div className="relative bg-gradient-to-r from-violet-600 to-indigo-600 p-3 rounded-2xl">
-                  <Sparkles className="w-8 h-8 text-white" />
+                <div className="relative bg-gradient-to-r from-violet-600 to-indigo-600 p-3 rounded-2xl overflow-hidden">
+                  <img 
+                    src={logo} 
+                    alt="ResuNexi Logo" 
+                    className="w-8 h-8 object-contain"
+                    onError={(e) => {
+                      // Fallback to a simple gradient square if image fails to load
+                      e.target.style.display = 'none';
+                    }}
+                  />
                 </div>
               </div>
               <h1 className="text-4xl font-bold text-white">ResuNexi</h1>
