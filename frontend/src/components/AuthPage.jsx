@@ -91,7 +91,7 @@ export default function AuthPage() {
                   <Sparkles className="w-8 h-8 text-white" />
                 </div>
               </div>
-              <h1 className="text-4xl font-bold text-white">ResumeCraft</h1>
+              <h1 className="text-4xl font-bold text-white">ResuNexi</h1>
             </div>
             <p className="text-violet-300 text-sm font-medium italic ml-14 animate-pulse">
               Your Brand of Second Chance Leading to Success
