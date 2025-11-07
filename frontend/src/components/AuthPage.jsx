@@ -87,18 +87,15 @@ export default function AuthPage() {
           <div className="mb-8">
             <div className="flex items-center space-x-3 mb-3">
               <div className="relative group">
-                <div className="absolute inset-0 bg-gradient-to-r from-violet-600 to-indigo-600 rounded-2xl blur-xl opacity-75 group-hover:opacity-100 transition duration-300"></div>
-                <div className="relative bg-gradient-to-r from-violet-600 to-indigo-600 p-3 rounded-2xl overflow-hidden">
-                  <img 
-                    src={logo} 
-                    alt="ResuNexi Logo" 
-                    className="w-8 h-8 object-contain"
-                    onError={(e) => {
-                      // Fallback to a simple gradient square if image fails to load
-                      e.target.style.display = 'none';
-                    }}
-                  />
-                </div>
+                <img 
+                  src={logo} 
+                  alt="ResuNexi Logo" 
+                  className="w-12 h-12 object-contain drop-shadow-2xl filter brightness-110 transition-all duration-300 group-hover:scale-110 group-hover:drop-shadow-[0_0_15px_rgba(139,92,246,0.8)]"
+                  onError={(e) => {
+                    // Fallback to a simple gradient square if image fails to load
+                    e.target.style.display = 'none';
+                  }}
+                />
               </div>
               <h1 className="text-4xl font-bold text-white">ResuNexi</h1>
             </div>
