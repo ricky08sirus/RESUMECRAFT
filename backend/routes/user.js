@@ -145,32 +145,54 @@ router.post("/sync", requireAuth(), async (req, res) => {
     const { userId: clerkId } = getAuth(req);
     if (!clerkId) return res.status(401).json({ error: "Unauthorized" });
 
-    const clerkData = await clerkClient.users.getUser(clerkId);
+    // Parallel execution: Fetch Clerk data and check DB simultaneously
+    const [clerkData, existingUser] = await Promise.all([
+      clerkClient.users.getUser(clerkId),
+      User.findOne({ clerkId }).lean() // .lean() for faster queries (returns plain JS object)
+    ]);
 
-    let user = await User.findOne({ clerkId });
-    if (!user) {
-      user = await User.create({
-        clerkId,
-        email: clerkData.emailAddresses[0]?.emailAddress || "",
-        fullName: `${clerkData.firstName || ""} ${clerkData.lastName || ""}`.trim(),
-      });
+    const userData = {
+      clerkId,
+      email: clerkData.emailAddresses[0]?.emailAddress || "",
+      fullName: `${clerkData.firstName || ""} ${clerkData.lastName || ""}`.trim(),
+    };
+
+    let user;
+    if (!existingUser) {
+      // Create new user
+      user = await User.create(userData);
       console.log("✅ New user created:", clerkId);
     } else {
-      user.email = clerkData.emailAddresses[0]?.emailAddress || user.email;
-      user.fullName = `${clerkData.firstName || ""} ${clerkData.lastName || ""}`.trim();
-      await user.save();
+      // Use updateOne for faster updates (no document loading)
+      await User.updateOne(
+        { clerkId },
+        { 
+          $set: { 
+            email: userData.email,
+            fullName: userData.fullName,
+            lastSyncedAt: new Date() // Track last sync
+          } 
+        }
+      );
+      user = { ...existingUser, ...userData };
       console.log("✅ User updated:", clerkId);
     }
 
+    // Send response immediately without waiting for logs
     return res.json({ message: "✅ User synced successfully", user });
   } catch (err) {
     console.error("User sync error:", err);
     return res.status(500).json({ 
       error: "Server error during user sync", 
-      details: err.message 
+      details: process.env.NODE_ENV === 'production' ? 'Internal error' : err.message 
     });
   }
 });
+
+// Optional: Add database index for faster lookups
+// In your User model file, add:
+// userSchema.index({ clerkId: 1 }, { unique: true });
+// userSchema.index({ email: 1 });
 
 // ------------------
 // Resume Upload Route
