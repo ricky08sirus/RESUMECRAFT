@@ -21,6 +21,7 @@ import Navbar from "./components/Navbar";
 import ResumeUpload from "./components/ResumeUpload";
 import JobDescription from "./components/JobDescription"; 
 import CustomizeResume from "./components/CustomizeResume";  
+import Footer from "./components/Footer";
 
 const API_URL = import.meta.env.VITE_API_URL;
 
@@ -110,6 +111,9 @@ function App() {
         {/* Fallback redirect */}
         <Route path="*" element={<Navigate to="/" replace />} />
       </Routes>
+      <SignedIn>
+        <Footer />
+      </SignedIn>
     </BrowserRouter>
   );
 }
