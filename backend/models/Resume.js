@@ -1,4 +1,4 @@
-// models/Resume.js - Ultra-Scalable, Safe Version (All Validation Fixed)
+// models/Resume.js - Ultra-Scalable, Safe Version (with Razorpay Payment Integration)
 import mongoose from "mongoose";
 
 /* -------------------------------------------------------------------------- */
@@ -8,7 +8,7 @@ import mongoose from "mongoose";
 // Resume Customization (Job-specific tailored versions)
 const customizedVersionSchema = new mongoose.Schema({
   jobId: { type: String, required: true },
-  jobDescription: { type: String, required: false }, // 🩹 Made optional to prevent validation crash
+  jobDescription: { type: String, required: false },
   customizedText: { type: String },
   matchScore: { type: Number, min: 0, max: 100, index: true },
   shortlistChance: { type: Number, min: 0, max: 100, index: true },
@@ -25,6 +25,29 @@ const customizedVersionSchema = new mongoose.Schema({
 const teaserSchema = new mongoose.Schema({
   jobId: { type: String, required: true },
   message: { type: String },
+  error: { type: String },
+}, { timestamps: true, _id: true });
+
+/* -------------------------------------------------------------------------- */
+/*                          PAYMENT SUB-SCHEMA (Razorpay)                     */
+/* -------------------------------------------------------------------------- */
+
+const paymentSchema = new mongoose.Schema({
+  orderId: { type: String, required: true, index: true },
+  paymentId: { type: String, index: true },
+  signature: { type: String },
+  amount: { type: Number, required: true },
+  currency: { type: String, default: "INR" },
+  status: { 
+    type: String, 
+    enum: ["created", "paid", "failed", "refunded"], 
+    default: "created",
+    index: true 
+  },
+  creditsAdded: { type: Number, default: 0 },
+  paymentMethod: { type: String },
+  razorpayResponse: { type: Object },
+  verifiedAt: { type: Date },
   error: { type: String },
 }, { timestamps: true, _id: true });
 
@@ -80,6 +103,7 @@ const resumeSchema = new mongoose.Schema({
 
   customizedVersions: [customizedVersionSchema],
   teasers: [teaserSchema],
+  payments: [paymentSchema], // 💰 Razorpay integrated payment records
 
   createdAt: { type: Date, default: Date.now, index: true },
   processingStartedAt: { type: Date },
@@ -106,6 +130,8 @@ resumeSchema.index({ "teasers.jobId": 1 }, { sparse: true });
 resumeSchema.index({ status: 1, createdAt: -1 });
 resumeSchema.index({ atsScore: -1, createdAt: -1 });
 resumeSchema.index({ r2Key: 1 }, { sparse: true, unique: true });
+resumeSchema.index({ "payments.orderId": 1 }, { sparse: true });
+resumeSchema.index({ "payments.status": 1, "payments.createdAt": -1 });
 
 /* -------------------------------------------------------------------------- */
 /*                              STATIC METHODS                                 */
@@ -148,12 +174,10 @@ resumeSchema.statics.getCustomizationByJobId = function(jobId) {
 
 // Add new customized version (Safe)
 resumeSchema.methods.addCustomization = async function(customizationData) {
-  // 🩹 Auto-fill missing jobDescription if not passed
   if (!customizationData.jobDescription && this.jobDescription) {
     customizationData.jobDescription = this.jobDescription;
   }
 
-  // 🩹 Ensure required jobId is present
   if (!customizationData.jobId) {
     customizationData.jobId = new mongoose.Types.ObjectId().toString();
   }
@@ -171,6 +195,25 @@ resumeSchema.methods.addTeaser = async function(teaserData) {
   return this.save({ validateBeforeSave: false });
 };
 
+// 💰 Add new payment (Safe)
+resumeSchema.methods.addPayment = async function(paymentData) {
+  if (!paymentData.orderId) {
+    throw new Error("orderId is required to create payment record.");
+  }
+  this.payments.push(paymentData);
+  return this.save({ validateBeforeSave: false });
+};
+
+// 💰 Update payment after verification
+resumeSchema.methods.updatePaymentStatus = async function(orderId, updateData) {
+  const payment = this.payments.find(p => p.orderId === orderId);
+  if (payment) {
+    Object.assign(payment, updateData);
+    return this.save({ validateBeforeSave: false });
+  }
+  throw new Error("Payment not found for orderId: " + orderId);
+};
+
 /* -------------------------------------------------------------------------- */
 /*                               MIDDLEWARE                                    */
 /* -------------------------------------------------------------------------- */
@@ -182,12 +225,16 @@ resumeSchema.pre('save', function(next) {
   if (this.teasers?.length > 30) {
     this.teasers = this.teasers.slice(-30);
   }
+  if (this.payments?.length > 100) {
+    this.payments = this.payments.slice(-100);
+  }
   next();
 });
 
 resumeSchema.post('init', function(doc) {
   if (doc.customizedVersions) doc._customizationCount = doc.customizedVersions.length;
   if (doc.teasers) doc._teaserCount = doc.teasers.length;
+  if (doc.payments) doc._paymentCount = doc.payments.length;
 });
 
 /* -------------------------------------------------------------------------- */
@@ -198,7 +245,6 @@ resumeSchema.set('toJSON', {
   virtuals: false,
   versionKey: false,
   transform: function(doc, ret) {
-    // 🩹 Prevent substring crash
     if (ret.parsedText && typeof ret.parsedText === 'string' && ret.parsedText.length > 1000) {
       ret.parsedText = ret.parsedText.substring(0, 1000) + '... [truncated]';
     }
@@ -223,5 +269,9 @@ if (process.env.ENABLE_QUERY_LOGGING === 'true') {
     next();
   });
 }
+
+/* -------------------------------------------------------------------------- */
+/*                               EXPORT MODEL                                  */
+/* -------------------------------------------------------------------------- */
 
 export default mongoose.model("Resume", resumeSchema);

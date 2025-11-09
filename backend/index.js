@@ -11,7 +11,9 @@ import path from "path";
 import fs from "fs";
 import chalk from "chalk";
 import { GoogleGenerativeAI } from "@google/generative-ai";
-import { Queue } from "bullmq"; // ✅ Added BullMQ
+import { Queue } from "bullmq"; 
+import paymentRoutes from "./routes/payment.js";  
+
 
 dotenv.config();
 
@@ -126,7 +128,8 @@ app.use(express.json({ limit: "10mb" }));
 app.use(express.urlencoded({ extended: true }));
 
 // ✅ Clerk middleware — must come after JSON parsers
-app.use(clerkMiddleware());
+app.use(clerkMiddleware()); //-----------------------remove the comments later to make things accessible .
+
 
 // Serve local uploaded files for debugging
 app.use("/uploads", express.static(uploadDir));
@@ -172,6 +175,7 @@ app.use((req, res, next) => {
 // ---------------------------
 app.use("/user", userRoutes);
 app.use("/", customizeRoutes);
+app.use("/api/payments", paymentRoutes); 
 
 // ---------------------------
 // 6️⃣ Debug / Health Endpoints

@@ -1,13 +1,21 @@
 import React, { useState, useEffect } from 'react';
-import { UserButton, useUser } from '@clerk/clerk-react';
-import { Menu, X, Bell } from 'lucide-react';
+import { UserButton, useUser, useAuth } from '@clerk/clerk-react';
+import { Link } from 'react-router-dom';
+import { Menu, X, Bell, CreditCard, Coins } from 'lucide-react';
+import axios from 'axios';
 import logo from '../assets/resunexi.ico';
 
 export default function Navbar() {
   const { user } = useUser();
+  const { getToken } = useAuth();
   const [isScrolled, setIsScrolled] = useState(false);
   const [isMobileMenuOpen, setIsMobileMenuOpen] = useState(false);
+  const [credits, setCredits] = useState(null); // null = loading, number = loaded
+  const [isLoadingCredits, setIsLoadingCredits] = useState(true);
 
+  const API_URL = import.meta.env.VITE_API_URL;
+
+  // Scroll effect
   useEffect(() => {
     const handleScroll = () => {
       setIsScrolled(window.scrollY > 20);
@@ -15,6 +23,35 @@ export default function Navbar() {
     window.addEventListener('scroll', handleScroll);
     return () => window.removeEventListener('scroll', handleScroll);
   }, []);
+
+  // Fetch user credits
+  useEffect(() => {
+    const fetchCredits = async () => {
+      if (!user) return;
+      
+      try {
+        setIsLoadingCredits(true);
+        const token = await getToken();
+        
+        const response = await axios.get(`${API_URL}/api/payments/user-payments`, {
+          headers: { Authorization: `Bearer ${token}` }
+        });
+        
+        setCredits(response.data?.credits || 0);
+      } catch (err) {
+        console.error("❌ Failed to fetch credits:", err);
+        setCredits(0); // Set to 0 on error
+      } finally {
+        setIsLoadingCredits(false);
+      }
+    };
+
+    fetchCredits();
+    
+    // Refresh credits every 30 seconds
+    const interval = setInterval(fetchCredits, 30000);
+    return () => clearInterval(interval);
+  }, [user, getToken, API_URL]);
 
   const navLinks = [
     // { name: 'Dashboard', icon: LayoutDashboard, href: '#' },
@@ -31,11 +68,11 @@ export default function Navbar() {
       <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
         <div className="flex items-center justify-between h-16 md:h-20">
           {/* Logo */}
-          <div className="flex items-center space-x-2 cursor-pointer">
+          <Link to="/" className="flex items-center space-x-2 cursor-pointer group">
             <img 
               src={logo} 
               alt="ResuNexi Logo" 
-              className="w-20 h-20 object-contain"   // ⬅️ Increased size from w-12 h-12
+              className="w-20 h-20 object-contain transition-transform group-hover:scale-110"
               style={{
                 imageRendering: 'crisp-edges',
                 WebkitFontSmoothing: 'antialiased',
@@ -45,7 +82,7 @@ export default function Navbar() {
             <span className="text-2xl font-bold bg-gradient-to-r from-pink-600 via-purple-600 to-indigo-600 bg-clip-text text-transparent">
               ResuNexi
             </span>
-          </div>
+          </Link>
 
           {/* Desktop Navigation */}
           <div className="hidden md:flex items-center space-x-1">
@@ -68,7 +105,36 @@ export default function Navbar() {
           </div>
 
           {/* Right Side - User Actions */}
-          <div className="flex items-center space-x-4">
+          <div className="flex items-center space-x-3">
+            {/* Credits Display & Buy Button - Desktop */}
+            {user && (
+              <div className="hidden md:flex items-center space-x-2">
+                {/* Credits Display */}
+                <div className="flex items-center space-x-2 px-3 py-2 rounded-xl bg-gradient-to-r from-violet-50 to-purple-50 border border-violet-100">
+                  <Coins className="w-5 h-5 text-violet-600" />
+                  <div className="flex flex-col">
+                    <span className="text-xs text-gray-500 leading-none">Credits</span>
+                    {isLoadingCredits ? (
+                      <div className="h-4 w-8 bg-gray-200 animate-pulse rounded mt-0.5"></div>
+                    ) : (
+                      <span className="text-sm font-bold text-gray-900 leading-none mt-0.5">
+                        {credits}
+                      </span>
+                    )}
+                  </div>
+                </div>
+
+                {/* Buy Credits Button */}
+                <Link
+                  to="/payment"
+                  className="group flex items-center space-x-2 px-4 py-2 bg-gradient-to-r from-violet-600 to-purple-600 hover:from-violet-700 hover:to-purple-700 rounded-xl text-white font-semibold shadow-lg shadow-violet-500/30 hover:shadow-violet-500/50 hover:scale-105 active:scale-95 transition-all duration-200"
+                >
+                  <CreditCard className="w-4 h-4" />
+                  <span className="text-sm">Buy Credits</span>
+                </Link>
+              </div>
+            )}
+
             {/* Notification Bell */}
             <button className="hidden md:block relative p-2 rounded-xl hover:bg-gray-100 transition-colors duration-200">
               <Bell className="w-5 h-5 text-gray-700" />
@@ -114,6 +180,34 @@ export default function Navbar() {
         {isMobileMenuOpen && (
           <div className="md:hidden absolute top-full left-0 right-0 bg-white/95 backdrop-blur-xl shadow-xl border-t border-gray-100 animate-in slide-in-from-top duration-300">
             <div className="px-4 py-6 space-y-1">
+              {/* Credits Display - Mobile */}
+              {user && (
+                <div className="mb-4 p-4 rounded-xl bg-gradient-to-r from-violet-50 to-purple-50 border border-violet-100">
+                  <div className="flex items-center justify-between mb-3">
+                    <div className="flex items-center space-x-2">
+                      <Coins className="w-5 h-5 text-violet-600" />
+                      <div>
+                        <p className="text-xs text-gray-500">Available Credits</p>
+                        {isLoadingCredits ? (
+                          <div className="h-5 w-12 bg-gray-200 animate-pulse rounded mt-1"></div>
+                        ) : (
+                          <p className="text-lg font-bold text-gray-900">{credits}</p>
+                        )}
+                      </div>
+                    </div>
+                    <Link
+                      to="/payment"
+                      onClick={() => setIsMobileMenuOpen(false)}
+                      className="flex items-center space-x-2 px-4 py-2 bg-gradient-to-r from-violet-600 to-purple-600 rounded-xl text-white text-sm font-semibold shadow-lg hover:shadow-violet-500/50 active:scale-95 transition-all"
+                    >
+                      <CreditCard className="w-4 h-4" />
+                      <span>Buy</span>
+                    </Link>
+                  </div>
+                </div>
+              )}
+
+              {/* Navigation Links */}
               {navLinks.map((link) => {
                 const Icon = link.icon;
                 return (
@@ -128,6 +222,7 @@ export default function Navbar() {
                 );
               })}
               
+              {/* User Profile - Mobile */}
               {user && (
                 <div className="pt-4 mt-4 border-t border-gray-200">
                   <div className="flex items-center space-x-3 px-4 py-3 rounded-xl bg-gradient-to-r from-violet-50 to-indigo-50">
@@ -153,4 +248,3 @@ export default function Navbar() {
     </nav>
   );
 }
-

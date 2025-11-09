@@ -26,6 +26,8 @@ import {
   BarChart3,
   Mail,
   Linkedin,
+  Lock,
+  CreditCard,
 } from "lucide-react";
 
 const API_URL = import.meta.env.VITE_API_URL;
@@ -53,8 +55,13 @@ export default function CustomizeResume() {
   const [progress, setProgress] = useState(0);
   const [copiedTeaser, setCopiedTeaser] = useState(false);
   const [teaserJobId, setTeaserJobId] = useState(null);
-
   const [retryCount, setRetryCount] = useState(0);
+  
+  // ✅ NEW: Payment verification states
+  const [userCredits, setUserCredits] = useState(0);
+  const [isCheckingPayment, setIsCheckingPayment] = useState(true);
+  const [hasAccess, setHasAccess] = useState(false);
+
   const MAX_RETRIES = 3;
 
   const loadingMessages = [
@@ -64,6 +71,31 @@ export default function CustomizeResume() {
     { icon: Sparkles, text: "Enhancing keywords and phrases...", progress: 80 },
     { icon: CheckCircle2, text: "Finalizing your executive resume...", progress: 95 },
   ];
+
+  /* ==================== NEW: Check User Credits ==================== */
+  useEffect(() => {
+    const checkUserCredits = async () => {
+      try {
+        setIsCheckingPayment(true);
+        const token = await getToken();
+        
+        const response = await axios.get(`${API_URL}/api/payments/user-payments`, {
+          headers: { Authorization: `Bearer ${token}` }
+        });
+
+        const credits = response.data?.credits || 0;
+        setUserCredits(credits);
+        setHasAccess(credits > 0); // User has access if they have credits
+      } catch (err) {
+        console.error("❌ Failed to fetch user credits:", err);
+        setHasAccess(false);
+      } finally {
+        setIsCheckingPayment(false);
+      }
+    };
+
+    checkUserCredits();
+  }, [getToken]);
 
   /* ------------------------ Polling for Job Status ------------------------ */
   useEffect(() => {
@@ -208,6 +240,12 @@ export default function CustomizeResume() {
 
   /* ==================== ULTRA-PREMIUM PDF GENERATION ==================== */
   const handleDownload = () => {
+    // ✅ Check if user has access
+    if (!hasAccess) {
+      navigate('/payment');
+      return;
+    }
+
     if (!customizedResume) return;
 
     const userName = user?.fullName || user?.firstName || "Professional";
@@ -222,15 +260,14 @@ export default function CustomizeResume() {
       compress: true 
     });
     
-    // Ultra-Premium Color Palette
     const colors = {
-      navy: [31, 41, 55],           // Deep navy
-      burgundy: [136, 14, 79],      // Rich burgundy
-      gold: [197, 155, 72],         // Luxury gold
-      royal: [37, 99, 235],         // Royal blue
-      charcoal: [45, 55, 72],       // Charcoal
-      slate: [100, 116, 139],       // Slate
-      black: [17, 24, 39],          // Rich black
+      navy: [31, 41, 55],
+      burgundy: [136, 14, 79],
+      gold: [197, 155, 72],
+      royal: [37, 99, 235],
+      charcoal: [45, 55, 72],
+      slate: [100, 116, 139],
+      black: [17, 24, 39],
     };
 
     const margin = 45;
@@ -239,7 +276,6 @@ export default function CustomizeResume() {
     const contentWidth = pageWidth - (margin * 2);
     let yPos = margin - 10;
 
-    // Watermark at bottom
     const addWatermark = () => {
       doc.saveGraphicsState();
       doc.setGState(new doc.GState({ opacity: 0.03 }));
@@ -252,7 +288,6 @@ export default function CustomizeResume() {
       doc.restoreGraphicsState();
     };
 
-    // Page number
     const addPageNum = (num) => {
       if (num > 1) {
         doc.setFont("helvetica", "normal");
@@ -262,7 +297,6 @@ export default function CustomizeResume() {
       }
     };
 
-    // Top accent bar
     doc.setFillColor(...colors.burgundy);
     doc.rect(0, 0, pageWidth, 3, "F");
     
@@ -274,7 +308,6 @@ export default function CustomizeResume() {
 
     yPos = margin + 15;
 
-    // USER NAME - Large, Bold, Centered
     doc.setFont("times", "bold");
     doc.setFontSize(32);
     doc.setTextColor(...colors.burgundy);
@@ -282,7 +315,6 @@ export default function CustomizeResume() {
     doc.text(userName.toUpperCase(), (pageWidth - nameWidth) / 2, yPos);
     yPos += 20;
 
-    // CONTACT INFO - Centered
     if (userEmail || userPhone) {
       const contact = [];
       if (userEmail) contact.push(userEmail);
@@ -297,7 +329,6 @@ export default function CustomizeResume() {
       yPos += 16;
     }
 
-    // ELEGANT DIVIDER
     yPos += 5;
     doc.setDrawColor(...colors.burgundy);
     doc.setLineWidth(1.5);
@@ -311,7 +342,6 @@ export default function CustomizeResume() {
 
     let pageNum = 1;
 
-    // Process resume content
     const cleaned = cleanText(customizedResume);
     const lines = cleaned.split('\n');
 
@@ -332,7 +362,6 @@ export default function CustomizeResume() {
         continue;
       }
 
-      // Page break check
       if (yPos > pageHeight - 70) {
         addPageNum(pageNum);
         doc.addPage();
@@ -346,14 +375,12 @@ export default function CustomizeResume() {
         yPos = margin + 10;
       }
 
-      // Check if section header
       const upper = line.toUpperCase();
       const isSection = sections.some(s => upper === s || upper.startsWith(s + ':'));
 
       if (isSection) {
         yPos += 12;
         
-        // SECTION HEADER
         doc.setFont("helvetica", "bold");
         doc.setFontSize(12);
         doc.setTextColor(...colors.royal);
@@ -371,7 +398,6 @@ export default function CustomizeResume() {
         yPos += 16;
         
       } else if (line.match(/^[•\-\*]\s/)) {
-        // BULLET POINT
         const bulletText = line.replace(/^[•\-\*]\s*/, '').trim();
         const bulletLines = doc.splitTextToSize(bulletText, contentWidth - 18);
         
@@ -405,7 +431,6 @@ export default function CustomizeResume() {
         });
         
       } else {
-        // REGULAR TEXT - Left aligned (better readability)
         const textLines = doc.splitTextToSize(line, contentWidth);
         
         doc.setFont("helvetica", "normal");
@@ -441,6 +466,12 @@ export default function CustomizeResume() {
 
   /* ----------------------------- Copy Teaser ----------------------------- */
   const copyTeaserToClipboard = () => {
+    // ✅ Check if user has access
+    if (!hasAccess) {
+      navigate('/payment');
+      return;
+    }
+
     if (linkedinTeaser) {
       navigator.clipboard.writeText(linkedinTeaser);
       setCopiedTeaser(true);
@@ -486,6 +517,53 @@ export default function CustomizeResume() {
     generateLinkedInTeaser();
   };
 
+  /* ==================== NEW: Payment Gate Overlay ==================== */
+  const PaymentGateOverlay = ({ onUpgrade }) => (
+    <div className="absolute inset-0 bg-slate-900/95 backdrop-blur-md rounded-2xl flex flex-col items-center justify-center z-50 p-8">
+      <div className="text-center max-w-md">
+        <div className="w-20 h-20 bg-gradient-to-br from-purple-500 to-indigo-600 rounded-3xl flex items-center justify-center mx-auto mb-6 shadow-2xl">
+          <Lock className="w-10 h-10 text-white" />
+        </div>
+        
+        <h3 className="text-2xl font-bold text-white mb-3">
+          Premium Content Locked
+        </h3>
+        
+        <p className="text-purple-200 mb-6 leading-relaxed">
+          Unlock your optimized resume and LinkedIn message by purchasing credits. Get instant access to download and copy features.
+        </p>
+
+        <div className="bg-purple-500/10 rounded-xl p-4 mb-6 border border-purple-500/30">
+          <div className="flex items-center justify-center gap-2 text-purple-300 text-sm mb-2">
+            <CheckCircle2 className="w-4 h-4" />
+            <span>AI-Optimized Resume</span>
+          </div>
+          <div className="flex items-center justify-center gap-2 text-purple-300 text-sm mb-2">
+            <CheckCircle2 className="w-4 h-4" />
+            <span>LinkedIn Outreach Message</span>
+          </div>
+          <div className="flex items-center justify-center gap-2 text-purple-300 text-sm">
+            <CheckCircle2 className="w-4 h-4" />
+            <span>Premium PDF Export</span>
+          </div>
+        </div>
+
+        <button
+          onClick={onUpgrade}
+          className="w-full px-8 py-4 bg-gradient-to-r from-purple-600 to-indigo-600 text-white font-bold rounded-xl hover:shadow-2xl hover:shadow-purple-500/50 hover:scale-105 transition-all flex items-center justify-center gap-3"
+        >
+          <CreditCard className="w-5 h-5" />
+          <span>Buy Credits - ₹200</span>
+          <Sparkles className="w-5 h-5" />
+        </button>
+
+        <p className="text-xs text-purple-300/60 mt-4">
+          One-time payment • 10 Resume Credits • Instant Access
+        </p>
+      </div>
+    </div>
+  );
+
   /* ----------------------------- UI Rendering ----------------------------- */
   return (
     <div className="min-h-screen bg-gradient-to-br from-slate-900 via-purple-900 to-slate-900 pt-24 pb-12 px-4 sm:px-6">
@@ -507,7 +585,12 @@ export default function CustomizeResume() {
             <p className="text-purple-200 text-sm">AI-Powered Professional Optimization</p>
           </div>
 
-          <div className="w-20"></div>
+          {/* ✅ NEW: Credits Display */}
+          <div className="flex items-center gap-2 bg-white/10 backdrop-blur-xl rounded-full px-4 py-2 border border-white/20">
+            <CreditCard className="w-4 h-4 text-purple-400" />
+            <span className="text-white font-semibold">{userCredits}</span>
+            <span className="text-purple-300 text-sm">credits</span>
+          </div>
         </div>
 
         {/* Loading State */}
@@ -651,7 +734,12 @@ export default function CustomizeResume() {
             )}
 
             {/* Optimized Resume */}
-            <div className="bg-white/10 backdrop-blur-xl rounded-2xl shadow-2xl border border-white/20 overflow-hidden">
+            <div className="bg-white/10 backdrop-blur-xl rounded-2xl shadow-2xl border border-white/20 overflow-hidden relative">
+              {/* ✅ Payment Gate Overlay for Resume */}
+              {!hasAccess && (
+                <PaymentGateOverlay onUpgrade={() => navigate('/payment')} />
+              )}
+
               <div className="bg-gradient-to-r from-purple-600 to-indigo-600 px-8 py-6 border-b border-white/10">
                 <div className="flex items-center justify-between flex-wrap gap-4">
                   <div className="flex items-center gap-3">
@@ -670,16 +758,30 @@ export default function CustomizeResume() {
                   
                   <button
                     onClick={handleDownload}
-                    className="px-6 py-3 bg-white text-purple-600 font-semibold rounded-xl hover:bg-purple-50 transition-all flex items-center gap-2 shadow-lg hover:shadow-xl hover:scale-105"
+                    disabled={!hasAccess}
+                    className={`px-6 py-3 font-semibold rounded-xl transition-all flex items-center gap-2 shadow-lg ${
+                      hasAccess
+                        ? 'bg-white text-purple-600 hover:bg-purple-50 hover:shadow-xl hover:scale-105'
+                        : 'bg-white/20 text-white/50 cursor-not-allowed'
+                    }`}
                   >
-                    <Download className="w-5 h-5" />
-                    Download PDF
+                    {hasAccess ? (
+                      <>
+                        <Download className="w-5 h-5" />
+                        Download PDF
+                      </>
+                    ) : (
+                      <>
+                        <Lock className="w-5 h-5" />
+                        Locked
+                      </>
+                    )}
                   </button>
                 </div>
               </div>
 
               <div className="p-8">
-                <div className="bg-white/5 rounded-xl p-6 border border-white/10">
+                <div className={`bg-white/5 rounded-xl p-6 border border-white/10 relative ${!hasAccess ? 'blur-lg select-none' : ''}`}>
                   <pre className="whitespace-pre-wrap font-sans text-white leading-relaxed text-sm max-h-[600px] overflow-y-auto scrollbar-thin scrollbar-thumb-purple-500/50 scrollbar-track-white/5">
 {customizedResume}
                   </pre>
@@ -688,7 +790,12 @@ export default function CustomizeResume() {
             </div>
 
             {/* LinkedIn Teaser Section */}
-            <div className="bg-white/10 backdrop-blur-xl rounded-2xl shadow-2xl border border-white/20 overflow-hidden">
+            <div className="bg-white/10 backdrop-blur-xl rounded-2xl shadow-2xl border border-white/20 overflow-hidden relative">
+              {/* ✅ Payment Gate Overlay for LinkedIn Message */}
+              {!hasAccess && linkedinTeaser && (
+                <PaymentGateOverlay onUpgrade={() => navigate('/payment')} />
+              )}
+
               <div className="bg-gradient-to-r from-indigo-600 to-purple-600 px-8 py-6 border-b border-white/10">
                 <div className="flex items-center justify-between flex-wrap gap-4">
                   <div className="flex items-center gap-3">
@@ -763,7 +870,7 @@ export default function CustomizeResume() {
                       <div className="absolute -top-3 -left-3 w-16 h-16 bg-gradient-to-br from-purple-500 to-indigo-600 rounded-full opacity-20 blur-xl"></div>
                       <div className="absolute -bottom-3 -right-3 w-20 h-20 bg-gradient-to-br from-purple-500 to-pink-600 rounded-full opacity-20 blur-xl"></div>
                       
-                      <div className="relative bg-gradient-to-br from-purple-500/20 to-indigo-500/20 rounded-2xl p-8 border-2 border-purple-400/30 backdrop-blur-sm shadow-xl">
+                      <div className={`relative bg-gradient-to-br from-purple-500/20 to-indigo-500/20 rounded-2xl p-8 border-2 border-purple-400/30 backdrop-blur-sm shadow-xl ${!hasAccess ? 'blur-lg select-none' : ''}`}>
                         <div className="flex items-start gap-3 mb-4">
                           <div className="w-8 h-8 bg-purple-500 rounded-lg flex items-center justify-center flex-shrink-0">
                             <Mail className="w-4 h-4 text-white" />
@@ -797,9 +904,19 @@ export default function CustomizeResume() {
                     <div className="grid md:grid-cols-2 gap-4">
                       <button
                         onClick={copyTeaserToClipboard}
-                        className="group px-6 py-4 bg-gradient-to-r from-purple-600 to-indigo-600 text-white font-semibold rounded-xl hover:shadow-lg hover:shadow-purple-500/50 hover:scale-105 transition-all flex items-center justify-center gap-3"
+                        disabled={!hasAccess}
+                        className={`group px-6 py-4 font-semibold rounded-xl transition-all flex items-center justify-center gap-3 ${
+                          hasAccess
+                            ? 'bg-gradient-to-r from-purple-600 to-indigo-600 text-white hover:shadow-lg hover:shadow-purple-500/50 hover:scale-105'
+                            : 'bg-white/10 text-white/50 cursor-not-allowed border-2 border-white/20'
+                        }`}
                       >
-                        {copiedTeaser ? (
+                        {!hasAccess ? (
+                          <>
+                            <Lock className="w-5 h-5" />
+                            <span>Locked</span>
+                          </>
+                        ) : copiedTeaser ? (
                           <>
                             <div className="w-5 h-5 bg-white/20 rounded-full flex items-center justify-center">
                               <Check className="w-3 h-3" />
@@ -816,7 +933,12 @@ export default function CustomizeResume() {
                       
                       <button
                         onClick={() => window.open('https://www.linkedin.com/messaging/', '_blank')}
-                        className="group px-6 py-4 bg-white/10 text-white font-semibold rounded-xl hover:bg-white/20 transition-all flex items-center justify-center gap-3 border-2 border-white/20 hover:border-purple-400/50"
+                        disabled={!hasAccess}
+                        className={`group px-6 py-4 font-semibold rounded-xl transition-all flex items-center justify-center gap-3 border-2 ${
+                          hasAccess
+                            ? 'bg-white/10 text-white hover:bg-white/20 border-white/20 hover:border-purple-400/50'
+                            : 'bg-white/5 text-white/50 cursor-not-allowed border-white/10'
+                        }`}
                       >
                         <Linkedin className="w-5 h-5 group-hover:scale-110 transition-transform" />
                         <span>Open LinkedIn</span>
@@ -824,46 +946,50 @@ export default function CustomizeResume() {
                       </button>
                     </div>
 
-                    <div className="bg-purple-500/10 rounded-xl p-6 border border-purple-500/20">
-                      <div className="flex items-start gap-3">
-                        <div className="w-8 h-8 bg-purple-500/20 rounded-lg flex items-center justify-center flex-shrink-0 mt-1">
-                          <Sparkles className="w-4 h-4 text-purple-400" />
+                    {hasAccess && (
+                      <>
+                        <div className="bg-purple-500/10 rounded-xl p-6 border border-purple-500/20">
+                          <div className="flex items-start gap-3">
+                            <div className="w-8 h-8 bg-purple-500/20 rounded-lg flex items-center justify-center flex-shrink-0 mt-1">
+                              <Sparkles className="w-4 h-4 text-purple-400" />
+                            </div>
+                            <div className="flex-1">
+                              <h4 className="text-sm font-semibold text-purple-300 mb-2">
+                                Pro Tips for Maximum Impact
+                              </h4>
+                              <ul className="space-y-2 text-sm text-purple-100/80">
+                                <li className="flex items-start gap-2">
+                                  <span className="text-purple-400 mt-0.5">•</span>
+                                  <span>Personalize the message with the recipient's name and company</span>
+                                </li>
+                                <li className="flex items-start gap-2">
+                                  <span className="text-purple-400 mt-0.5">•</span>
+                                  <span>Send connection requests with this message during business hours</span>
+                                </li>
+                                <li className="flex items-start gap-2">
+                                  <span className="text-purple-400 mt-0.5">•</span>
+                                  <span>Follow up 3-5 days later if you don't receive a response</span>
+                                </li>
+                                <li className="flex items-start gap-2">
+                                  <span className="text-purple-400 mt-0.5">•</span>
+                                  <span>Keep your LinkedIn profile updated to match your resume</span>
+                                </li>
+                              </ul>
+                            </div>
+                          </div>
                         </div>
-                        <div className="flex-1">
-                          <h4 className="text-sm font-semibold text-purple-300 mb-2">
-                            Pro Tips for Maximum Impact
-                          </h4>
-                          <ul className="space-y-2 text-sm text-purple-100/80">
-                            <li className="flex items-start gap-2">
-                              <span className="text-purple-400 mt-0.5">•</span>
-                              <span>Personalize the message with the recipient's name and company</span>
-                            </li>
-                            <li className="flex items-start gap-2">
-                              <span className="text-purple-400 mt-0.5">•</span>
-                              <span>Send connection requests with this message during business hours</span>
-                            </li>
-                            <li className="flex items-start gap-2">
-                              <span className="text-purple-400 mt-0.5">•</span>
-                              <span>Follow up 3-5 days later if you don't receive a response</span>
-                            </li>
-                            <li className="flex items-start gap-2">
-                              <span className="text-purple-400 mt-0.5">•</span>
-                              <span>Keep your LinkedIn profile updated to match your resume</span>
-                            </li>
-                          </ul>
-                        </div>
-                      </div>
-                    </div>
 
-                    <div className="text-center pt-4">
-                      <button
-                        onClick={generateLinkedInTeaser}
-                        className="text-purple-300 hover:text-white text-sm font-medium transition-colors inline-flex items-center gap-2 group"
-                      >
-                        <RefreshCw className="w-4 h-4 group-hover:rotate-180 transition-transform duration-500" />
-                        Generate New Message
-                      </button>
-                    </div>
+                        <div className="text-center pt-4">
+                          <button
+                            onClick={generateLinkedInTeaser}
+                            className="text-purple-300 hover:text-white text-sm font-medium transition-colors inline-flex items-center gap-2 group"
+                          >
+                            <RefreshCw className="w-4 h-4 group-hover:rotate-180 transition-transform duration-500" />
+                            Generate New Message
+                          </button>
+                        </div>
+                      </>
+                    )}
                   </div>
                 )}
 
