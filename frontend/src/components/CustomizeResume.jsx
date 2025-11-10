@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from "react";
+import React, { useState, useEffect, useRef } from "react";
 import { useAuth, useUser } from "@clerk/clerk-react";
 import { useLocation, useNavigate } from "react-router-dom";
 import axios from "axios";
@@ -57,12 +57,18 @@ export default function CustomizeResume() {
   const [teaserJobId, setTeaserJobId] = useState(null);
   const [retryCount, setRetryCount] = useState(0);
   
-  // ✅ NEW: Payment verification states
+  // ✅ Payment verification states
   const [userCredits, setUserCredits] = useState(0);
   const [isCheckingPayment, setIsCheckingPayment] = useState(true);
   const [hasAccess, setHasAccess] = useState(false);
 
+  // ✅ FIX: Use refs to track polling state and prevent memory leaks
+  const pollingRef = useRef(null);
+  const messageIntervalRef = useRef(null);
+  const teaserPollingRef = useRef(null);
+
   const MAX_RETRIES = 3;
+  const MAX_POLL_ATTEMPTS = 60; // 60 attempts * 3 seconds = 3 minutes max
 
   const loadingMessages = [
     { icon: Brain, text: "Analyzing job requirements with AI...", progress: 20 },
@@ -72,7 +78,7 @@ export default function CustomizeResume() {
     { icon: CheckCircle2, text: "Finalizing your executive resume...", progress: 95 },
   ];
 
-  /* ==================== NEW: Check User Credits ==================== */
+  /* ==================== Check User Credits ==================== */
   useEffect(() => {
     const checkUserCredits = async () => {
       try {
@@ -85,7 +91,7 @@ export default function CustomizeResume() {
 
         const credits = response.data?.credits || 0;
         setUserCredits(credits);
-        setHasAccess(credits > 0); // User has access if they have credits
+        setHasAccess(credits > 0);
       } catch (err) {
         console.error("❌ Failed to fetch user credits:", err);
         setHasAccess(false);
@@ -97,20 +103,27 @@ export default function CustomizeResume() {
     checkUserCredits();
   }, [getToken]);
 
-  /* ------------------------ Polling for Job Status ------------------------ */
+  /* ==================== FIXED: Polling for Job Status ==================== */
   useEffect(() => {
     if (!initialJobId) return;
 
     let messageIndex = 0;
-    const messageInterval = setInterval(() => {
-      if (messageIndex < loadingMessages.length) {
+    let pollAttempt = 0;
+    let isPolling = true;
+
+    // Progress message animation
+    messageIntervalRef.current = setInterval(() => {
+      if (messageIndex < loadingMessages.length && isPolling) {
         setProgress(loadingMessages[messageIndex].progress);
         messageIndex++;
       }
     }, 2500);
 
-    let attempt = 0;
-    const pollInterval = setInterval(async () => {
+    // Polling function
+    const poll = async () => {
+      // ✅ FIX: Stop polling if component unmounted or polling cancelled
+      if (!isPolling) return;
+
       try {
         const token = await getToken();
         const res = await axios.get(`${API_URL}/resume-job-status/${initialJobId}`, {
@@ -118,6 +131,7 @@ export default function CustomizeResume() {
           timeout: 10000,
         });
 
+        // ✅ Success: Stop polling
         if (res.data.status === "completed") {
           setCustomizedResume(res.data.customizedText);
           setMatchScore(res.data.matchScore);
@@ -125,37 +139,61 @@ export default function CustomizeResume() {
           setAnalysisSummary(res.data.analysisSummary);
           setIsLoading(false);
           setProgress(100);
-          clearInterval(pollInterval);
-          clearInterval(messageInterval);
-        } else if (res.data.status === "failed") {
+          isPolling = false; // Stop polling
+          if (messageIntervalRef.current) {
+            clearInterval(messageIntervalRef.current);
+          }
+          return;
+        }
+
+        // ✅ Failed: Stop polling and show error
+        if (res.data.status === "failed") {
           throw new Error(res.data.error || "Resume customization failed");
         }
 
-        attempt++;
-        if (attempt > 60) {
-          throw new Error("Request timed out. Please retry.");
+        // ✅ Check if max attempts reached
+        pollAttempt++;
+        if (pollAttempt >= MAX_POLL_ATTEMPTS) {
+          throw new Error("Request timed out after 3 minutes. Please retry.");
         }
+
+        // ✅ Continue polling if still processing
+        if (isPolling) {
+          pollingRef.current = setTimeout(poll, 3000);
+        }
+
       } catch (err) {
         console.warn("⚠️ Polling error:", err.message);
-
-        if (retryCount < MAX_RETRIES) {
-          setRetryCount((r) => r + 1);
-        } else {
-          setError("Customization took too long or failed. Please retry.");
-          setIsLoading(false);
-          clearInterval(pollInterval);
-          clearInterval(messageInterval);
+        
+        // ✅ FIX: Stop polling on error and show user-friendly message
+        isPolling = false;
+        setError(err.message || "Customization failed. Please retry.");
+        setIsLoading(false);
+        
+        if (messageIntervalRef.current) {
+          clearInterval(messageIntervalRef.current);
         }
       }
-    }, 3000);
-
-    return () => {
-      clearInterval(pollInterval);
-      clearInterval(messageInterval);
     };
-  }, [initialJobId, getToken, retryCount]);
 
-  /* -------------------- LinkedIn Teaser Generation -------------------- */
+    // Start polling
+    poll();
+
+    // ✅ Cleanup function to prevent memory leaks
+    return () => {
+      isPolling = false;
+      if (pollingRef.current) {
+        clearTimeout(pollingRef.current);
+        pollingRef.current = null;
+      }
+      if (messageIntervalRef.current) {
+        clearInterval(messageIntervalRef.current);
+        messageIntervalRef.current = null;
+      }
+    };
+  }, [initialJobId, getToken]);
+
+  /* ==================== LinkedIn Teaser Generation ==================== */
   const generateLinkedInTeaser = async () => {
     if (!resumeId) {
       setError("Resume ID not found. Please try again.");
@@ -164,6 +202,7 @@ export default function CustomizeResume() {
     
     setIsTeaserLoading(true);
     setLinkedinTeaser(null);
+    setError(null);
     
     try {
       const token = await getToken();
@@ -190,12 +229,19 @@ export default function CustomizeResume() {
     }
   };
 
-  /* -------------------- Poll Teaser Status -------------------- */
+  /* ==================== FIXED: Poll Teaser Status ==================== */
   const pollTeaserStatus = (jobId) => {
     let attempt = 0;
     const MAX_ATTEMPTS = 40;
+    let isPolling = true;
     
     const pollInterval = setInterval(async () => {
+      // ✅ Stop if polling cancelled
+      if (!isPolling) {
+        clearInterval(pollInterval);
+        return;
+      }
+
       try {
         const token = await getToken();
         
@@ -204,25 +250,47 @@ export default function CustomizeResume() {
           timeout: 10000,
         });
 
+        // ✅ Success: Stop polling
         if (res.data.status === "completed") {
           setLinkedinTeaser(res.data.teaser);
           setIsTeaserLoading(false);
+          isPolling = false;
           clearInterval(pollInterval);
-        } else if (res.data.status === "failed") {
+          return;
+        } 
+        
+        // ✅ Failed: Stop polling
+        if (res.data.status === "failed") {
           throw new Error(res.data.error || "Teaser generation failed");
         }
 
+        // ✅ Check max attempts
         attempt++;
         if (attempt >= MAX_ATTEMPTS) {
           throw new Error("Teaser generation timed out. Please try again.");
         }
       } catch (err) {
+        // ✅ Stop polling on error
+        isPolling = false;
         setIsTeaserLoading(false);
         setError(err.message || "Failed to retrieve teaser. Please retry.");
         clearInterval(pollInterval);
       }
     }, 2000);
+
+    // ✅ Store reference for cleanup
+    teaserPollingRef.current = pollInterval;
   };
+
+  /* ==================== Cleanup on unmount ==================== */
+  useEffect(() => {
+    return () => {
+      // Clear all polling intervals/timeouts on unmount
+      if (pollingRef.current) clearTimeout(pollingRef.current);
+      if (messageIntervalRef.current) clearInterval(messageIntervalRef.current);
+      if (teaserPollingRef.current) clearInterval(teaserPollingRef.current);
+    };
+  }, []);
 
   /* ----------------------------- Text Cleaner ----------------------------- */
   const cleanText = (text) => {
@@ -238,9 +306,8 @@ export default function CustomizeResume() {
       .trim();
   };
 
-  /* ==================== ULTRA-PREMIUM PDF GENERATION ==================== */
+  /* ==================== PDF GENERATION ==================== */
   const handleDownload = () => {
-    // ✅ Check if user has access
     if (!hasAccess) {
       navigate('/payment');
       return;
@@ -466,7 +533,6 @@ export default function CustomizeResume() {
 
   /* ----------------------------- Copy Teaser ----------------------------- */
   const copyTeaserToClipboard = () => {
-    // ✅ Check if user has access
     if (!hasAccess) {
       navigate('/payment');
       return;
@@ -504,12 +570,14 @@ export default function CustomizeResume() {
     loadingMessages[0];
   const CurrentIcon = currentMessage.icon;
 
-  /* ---------------------------- Retry Handling ---------------------------- */
+  /* ==================== FIXED: Retry Handling ==================== */
   const handleRetry = () => {
     setError(null);
     setIsLoading(true);
     setRetryCount(0);
     setProgress(0);
+    // Navigate back and let user resubmit
+    navigate(-1);
   };
 
   const retryTeaserGeneration = () => {
@@ -517,7 +585,7 @@ export default function CustomizeResume() {
     generateLinkedInTeaser();
   };
 
-  /* ==================== NEW: Payment Gate Overlay ==================== */
+  /* ==================== Payment Gate Overlay ==================== */
   const PaymentGateOverlay = ({ onUpgrade }) => (
     <div className="absolute inset-0 bg-slate-900/95 backdrop-blur-md rounded-2xl flex flex-col items-center justify-center z-50 p-8">
       <div className="text-center max-w-md">
@@ -585,7 +653,6 @@ export default function CustomizeResume() {
             <p className="text-purple-200 text-sm">AI-Powered Professional Optimization</p>
           </div>
 
-          {/* ✅ NEW: Credits Display */}
           <div className="flex items-center gap-2 bg-white/10 backdrop-blur-xl rounded-full px-4 py-2 border border-white/20">
             <CreditCard className="w-4 h-4 text-purple-400" />
             <span className="text-white font-semibold">{userCredits}</span>
@@ -735,7 +802,6 @@ export default function CustomizeResume() {
 
             {/* Optimized Resume */}
             <div className="bg-white/10 backdrop-blur-xl rounded-2xl shadow-2xl border border-white/20 overflow-hidden relative">
-              {/* ✅ Payment Gate Overlay for Resume */}
               {!hasAccess && (
                 <PaymentGateOverlay onUpgrade={() => navigate('/payment')} />
               )}
@@ -791,7 +857,6 @@ export default function CustomizeResume() {
 
             {/* LinkedIn Teaser Section */}
             <div className="bg-white/10 backdrop-blur-xl rounded-2xl shadow-2xl border border-white/20 overflow-hidden relative">
-              {/* ✅ Payment Gate Overlay for LinkedIn Message */}
               {!hasAccess && linkedinTeaser && (
                 <PaymentGateOverlay onUpgrade={() => navigate('/payment')} />
               )}
