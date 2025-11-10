@@ -110,57 +110,43 @@ export default function JobDescription() {
   };
 
   const handleCustomizeResume = async () => {
-    if (!resumeId) {
-      setError("Resume ID not found. Please create a resume first.");
-      return;
-    }
+  if (!resumeId) {
+    setError("Resume ID not found. Please create a resume first.");
+    return;
+  }
 
-    try {
-      setIsLoading(true);
-      setError(null);
+  try {
+    setIsLoading(true);
+    setError(null);
 
-      const token = await getToken();
+    const token = await getToken();
 
-      // 💳 Deduct 1 credit before customization
-      try {
-        const res = await axios.post(
-          `${API_URL}/api/payments/deduct-credits`,
-          { amount: 1, reason: "Customized resume" },
-          { headers: { Authorization: `Bearer ${token}` } }
-        );
-        console.log("✅ Credits deducted. New balance:", res.data.newCredits);
-      } catch (deductErr) {
-        console.error("❌ Credit deduction failed:", deductErr);
-        setError(
-          deductErr.response?.data?.error || "Insufficient credits. Please top up."
-        );
-        setIsLoading(false);
-        return;
-      }
+    console.log("📤 Sending customization request:", { resumeId, jobDescription: description });
 
-      console.log("📤 Sending customization request:", { resumeId, jobDescription: description });
+    // 🚫 Removed the credit deduction API call
 
-      const response = await axios.post(
-        `${API_URL}/customize-resume`,
-        { resumeId, jobDescription: description },
-        { headers: { Authorization: `Bearer ${token}` } }
-      );
+    const response = await axios.post(
+      `${API_URL}/customize-resume`,
+      { resumeId, jobDescription: description },
+      { headers: { Authorization: `Bearer ${token}` } }
+    );
 
-      console.log("✅ Customization response:", response.data);
+    console.log("✅ Customization response:", response.data);
 
-      const { jobId } = response.data;
+    const { jobId } = response.data;
 
-      navigate("/customize-resume", {
-        state: { resumeId, jobDescription: description, jobId },
-      });
-    } catch (err) {
-      console.error("❌ Customize Error:", err);
-      console.error("Error response:", err.response?.data);
-      setError(err.response?.data?.error || err.message || "Failed to enqueue customization.");
-    } finally {
-      setIsLoading(false);
-    }
-  };
+    navigate("/customize-resume", {
+      state: { resumeId, jobDescription: description, jobId },
+    });
+  } catch (err) {
+    console.error("❌ Customize Error:", err);
+    console.error("Error response:", err.response?.data);
+    setError(err.response?.data?.error || err.message || "Failed to enqueue customization.");
+  } finally {
+    setIsLoading(false);
+  }
+};
+
 
   const CurrentStageIcon = loadingStages[loadingStage]?.icon || Search;
 

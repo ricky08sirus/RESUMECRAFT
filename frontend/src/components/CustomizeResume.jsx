@@ -1,3 +1,4 @@
+
 import React, { useState, useEffect, useRef } from "react";
 import { useAuth, useUser } from "@clerk/clerk-react";
 import { useLocation, useNavigate } from "react-router-dom";
@@ -61,11 +62,13 @@ export default function CustomizeResume() {
   const [userCredits, setUserCredits] = useState(0);
   const [isCheckingPayment, setIsCheckingPayment] = useState(true);
   const [hasAccess, setHasAccess] = useState(false);
+  const [creditDeductionAttempted, setCreditDeductionAttempted] = useState(false);
 
-  // ✅ FIX: Use refs to track polling state and prevent memory leaks
+  // ✅ Use refs to track polling state and prevent memory leaks
   const pollingRef = useRef(null);
   const messageIntervalRef = useRef(null);
   const teaserPollingRef = useRef(null);
+  const creditDeductionRef = useRef(false); // Prevent double deduction
 
   const MAX_RETRIES = 3;
   const MAX_POLL_ATTEMPTS = 60; // 60 attempts * 3 seconds = 3 minutes max
@@ -78,32 +81,69 @@ export default function CustomizeResume() {
     { icon: CheckCircle2, text: "Finalizing your executive resume...", progress: 95 },
   ];
 
-  /* ==================== Check User Credits ==================== */
+  /* ==================== NEW: Auto-Deduct Credits on Page Load ==================== */
   useEffect(() => {
-    const checkUserCredits = async () => {
+    const deductCreditsOnLoad = async () => {
+      // Prevent multiple deductions
+      if (creditDeductionRef.current) return;
+      creditDeductionRef.current = true;
+
       try {
         setIsCheckingPayment(true);
         const token = await getToken();
         
-        const response = await axios.get(`${API_URL}/api/payments/user-payments`, {
+        // First, check user's current credits
+        const checkResponse = await axios.get(`${API_URL}/payments/user-payments`, {
           headers: { Authorization: `Bearer ${token}` }
         });
 
-        const credits = response.data?.credits || 0;
-        setUserCredits(credits);
-        setHasAccess(credits > 0);
+        const currentCredits = checkResponse.data?.credits || 0;
+        setUserCredits(currentCredits);
+
+        // ✅ If user has credits, attempt to deduct 1 credit
+        if (currentCredits > 0) {
+          try {
+            const deductResponse = await axios.post(
+              `${API_URL}/payments/deduct-credits`,
+              { 
+                amount: 1, 
+                reason: "Resume customization and analysis" 
+              },
+              { headers: { Authorization: `Bearer ${token}` } }
+            );
+
+            if (deductResponse.data.success) {
+              const newCredits = deductResponse.data.newCredits;
+              setUserCredits(newCredits);
+              setHasAccess(true); // Grant access since deduction was successful
+              setCreditDeductionAttempted(true);
+              console.log(`✅ Successfully deducted 1 credit. Remaining: ${newCredits}`);
+            }
+          } catch (deductErr) {
+            console.error("⚠️ Failed to deduct credits:", deductErr);
+            // Still allow viewing but lock features
+            setHasAccess(false);
+            setCreditDeductionAttempted(false);
+          }
+        } else {
+          // ⚠️ No credits available - allow viewing but lock features
+          console.warn("⚠️ User has 0 credits. Features will be locked.");
+          setHasAccess(false);
+          setCreditDeductionAttempted(false);
+        }
       } catch (err) {
-        console.error("❌ Failed to fetch user credits:", err);
+        console.error("❌ Failed to check/deduct credits:", err);
         setHasAccess(false);
+        setCreditDeductionAttempted(false);
       } finally {
         setIsCheckingPayment(false);
       }
     };
 
-    checkUserCredits();
+    deductCreditsOnLoad();
   }, [getToken]);
 
-  /* ==================== FIXED: Polling for Job Status ==================== */
+  /* ==================== Polling for Job Status ==================== */
   useEffect(() => {
     if (!initialJobId) return;
 
@@ -121,7 +161,6 @@ export default function CustomizeResume() {
 
     // Polling function
     const poll = async () => {
-      // ✅ FIX: Stop polling if component unmounted or polling cancelled
       if (!isPolling) return;
 
       try {
@@ -139,7 +178,7 @@ export default function CustomizeResume() {
           setAnalysisSummary(res.data.analysisSummary);
           setIsLoading(false);
           setProgress(100);
-          isPolling = false; // Stop polling
+          isPolling = false;
           if (messageIntervalRef.current) {
             clearInterval(messageIntervalRef.current);
           }
@@ -164,8 +203,6 @@ export default function CustomizeResume() {
 
       } catch (err) {
         console.warn("⚠️ Polling error:", err.message);
-        
-        // ✅ FIX: Stop polling on error and show user-friendly message
         isPolling = false;
         setError(err.message || "Customization failed. Please retry.");
         setIsLoading(false);
@@ -176,10 +213,9 @@ export default function CustomizeResume() {
       }
     };
 
-    // Start polling
     poll();
 
-    // ✅ Cleanup function to prevent memory leaks
+    // ✅ Cleanup function
     return () => {
       isPolling = false;
       if (pollingRef.current) {
@@ -229,14 +265,13 @@ export default function CustomizeResume() {
     }
   };
 
-  /* ==================== FIXED: Poll Teaser Status ==================== */
+  /* ==================== Poll Teaser Status ==================== */
   const pollTeaserStatus = (jobId) => {
     let attempt = 0;
     const MAX_ATTEMPTS = 40;
     let isPolling = true;
     
     const pollInterval = setInterval(async () => {
-      // ✅ Stop if polling cancelled
       if (!isPolling) {
         clearInterval(pollInterval);
         return;
@@ -270,7 +305,6 @@ export default function CustomizeResume() {
           throw new Error("Teaser generation timed out. Please try again.");
         }
       } catch (err) {
-        // ✅ Stop polling on error
         isPolling = false;
         setIsTeaserLoading(false);
         setError(err.message || "Failed to retrieve teaser. Please retry.");
@@ -278,14 +312,12 @@ export default function CustomizeResume() {
       }
     }, 2000);
 
-    // ✅ Store reference for cleanup
     teaserPollingRef.current = pollInterval;
   };
 
   /* ==================== Cleanup on unmount ==================== */
   useEffect(() => {
     return () => {
-      // Clear all polling intervals/timeouts on unmount
       if (pollingRef.current) clearTimeout(pollingRef.current);
       if (messageIntervalRef.current) clearInterval(messageIntervalRef.current);
       if (teaserPollingRef.current) clearInterval(teaserPollingRef.current);
@@ -570,13 +602,12 @@ export default function CustomizeResume() {
     loadingMessages[0];
   const CurrentIcon = currentMessage.icon;
 
-  /* ==================== FIXED: Retry Handling ==================== */
+  /* ==================== Retry Handling ==================== */
   const handleRetry = () => {
     setError(null);
     setIsLoading(true);
     setRetryCount(0);
     setProgress(0);
-    // Navigate back and let user resubmit
     navigate(-1);
   };
 
@@ -598,21 +629,21 @@ export default function CustomizeResume() {
         </h3>
         
         <p className="text-purple-200 mb-6 leading-relaxed">
-          Unlock your optimized resume and LinkedIn message by purchasing credits. Get instant access to download and copy features.
+          Add more credits to unlock download and copy features. Your customized resume is ready to view!
         </p>
 
         <div className="bg-purple-500/10 rounded-xl p-4 mb-6 border border-purple-500/30">
           <div className="flex items-center justify-center gap-2 text-purple-300 text-sm mb-2">
             <CheckCircle2 className="w-4 h-4" />
-            <span>AI-Optimized Resume</span>
+            <span>View AI-Optimized Resume</span>
           </div>
-          <div className="flex items-center justify-center gap-2 text-purple-300 text-sm mb-2">
-            <CheckCircle2 className="w-4 h-4" />
-            <span>LinkedIn Outreach Message</span>
+          <div className="flex items-center justify-center gap-2 text-purple-300 text-sm mb-2 opacity-50">
+            <Lock className="w-4 h-4" />
+            <span>Download PDF (Locked)</span>
           </div>
-          <div className="flex items-center justify-center gap-2 text-purple-300 text-sm">
-            <CheckCircle2 className="w-4 h-4" />
-            <span>Premium PDF Export</span>
+          <div className="flex items-center justify-center gap-2 text-purple-300 text-sm opacity-50">
+            <Lock className="w-4 h-4" />
+            <span>Copy LinkedIn Message (Locked)</span>
           </div>
         </div>
 
@@ -631,7 +662,6 @@ export default function CustomizeResume() {
       </div>
     </div>
   );
-
   /* ----------------------------- UI Rendering ----------------------------- */
   return (
     <div className="min-h-screen bg-gradient-to-br from-slate-900 via-purple-900 to-slate-900 pt-24 pb-12 px-4 sm:px-6">

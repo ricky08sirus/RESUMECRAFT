@@ -33,7 +33,7 @@ export default function Navbar() {
         setIsLoadingCredits(true);
         const token = await getToken();
         
-        const response = await axios.get(`${API_URL}/api/payments/user-payments`, {
+        const response = await axios.get(`${API_URL}/payments/user-payments`, {
           headers: { Authorization: `Bearer ${token}` }
         });
         

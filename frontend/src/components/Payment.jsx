@@ -41,7 +41,7 @@ export default function Payment() {
       setIsFetchingData(true);
       const token = await getToken();
       
-      const response = await axios.get(`${API_URL}/api/payments/user-payments`, {
+      const response = await axios.get(`${API_URL}/payments/user-payments`, {
         headers: { Authorization: `Bearer ${token}` }
       });
 
@@ -101,7 +101,7 @@ export default function Payment() {
       // Stage 2: Create Razorpay order
       setLoadingStage(1);
       const orderResponse = await axios.post(
-        `${API_URL}/api/payments/create-order`,
+        `${API_URL}/payments/create-order`,
         {},
         { headers: { Authorization: `Bearer ${token}` } }
       );
@@ -153,7 +153,7 @@ export default function Payment() {
   const verifyPayment = async (paymentResponse, token) => {
     try {
       const response = await axios.post(
-        `${API_URL}/api/payments/verify-payment`,
+        `${API_URL}/payments/verify-payment`,
         paymentResponse,
         { headers: { Authorization: `Bearer ${token}` } }
       );

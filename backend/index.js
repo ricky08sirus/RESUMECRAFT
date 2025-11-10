@@ -175,7 +175,7 @@ app.use((req, res, next) => {
 // ---------------------------
 app.use("/user", userRoutes);
 app.use("/", customizeRoutes);
-app.use("/api/payments", paymentRoutes); 
+app.use("/payments", paymentRoutes); 
 
 // ---------------------------
 // 6️⃣ Debug / Health Endpoints
