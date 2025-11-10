@@ -1,4 +1,5 @@
-// routes/payment.js - Razorpay Integration (Ultra-Scalable)
+// routes/payment.js - Razorpay Integration + Credit System (Stable Version)
+
 import express from "express";
 import Razorpay from "razorpay";
 import crypto from "crypto";
@@ -17,7 +18,7 @@ const razorpay = new Razorpay({
 });
 
 /* -------------------------------------------------------------------------- */
-/* ⚙️ RATE LIMITER (Same pattern as customize.js)                             */
+/* ⚙️ RATE LIMITER (Bottleneck-based for fairness)                            */
 /* -------------------------------------------------------------------------- */
 const limiter = new Bottleneck({
   minTime: 50,
@@ -26,7 +27,7 @@ const limiter = new Bottleneck({
   strategy: Bottleneck.strategy.OVERFLOW,
   reservoir: 1000,
   reservoirRefreshAmount: 1000,
-  reservoirRefreshInterval: 60 * 1000,
+  reservoirRefreshInterval: 60 * 1000, // Every minute
 });
 
 limiter.on("failed", async (error, jobInfo) => {
@@ -69,6 +70,7 @@ router.post(
 
       const { userId: clerkId } = getAuth(req);
       const user = await User.findOne({ clerkId }).select("_id").lean();
+
       if (!user) return res.status(404).json({ error: "User not found." });
 
       const options = {
@@ -104,31 +106,31 @@ router.post(
   requireAuth(),
   limiter.wrap(async (req, res) => {
     try {
-      const { userId: clerkId } = getAuth(req);
-      const { razorpay_order_id, razorpay_payment_id, razorpay_signature } =
-        req.body;
+      const clerkId = req.auth.userId;
+      const { razorpay_order_id, razorpay_payment_id, razorpay_signature } = req.body;
 
-      if (!razorpay_order_id || !razorpay_payment_id || !razorpay_signature)
+      if (!razorpay_order_id || !razorpay_payment_id || !razorpay_signature) {
         return res.status(400).json({ error: "Missing payment parameters." });
+      }
 
       const user = await User.findOne({ clerkId });
-      if (!user) return res.status(404).json({ error: "User not found." });
+      if (!user) {
+        console.error("❌ No user found for clerkId:", clerkId);
+        return res.status(404).json({ error: "User not found." });
+      }
 
       const generatedSignature = crypto
         .createHmac("sha256", process.env.RAZORPAY_KEY_SECRET)
-        .update(razorpay_order_id + "|" + razorpay_payment_id)
+        .update(`${razorpay_order_id}|${razorpay_payment_id}`)
         .digest("hex");
 
-      if (generatedSignature !== razorpay_signature) {
+      if (generatedSignature.trim() !== razorpay_signature.trim()) {
         console.error("⚠️ Payment signature mismatch!");
         return res.status(400).json({ error: "Invalid signature." });
       }
 
-      // ✅ Payment Verified → Add Credits
+      // ✅ Add credits & store payment
       user.credits = (user.credits || 0) + 10;
-
-      // Optional: Store payment record (embedded or separate collection)
-      user.payments = user.payments || [];
       user.payments.push({
         razorpay_order_id,
         razorpay_payment_id,
@@ -140,7 +142,7 @@ router.post(
 
       await user.save({ validateBeforeSave: false });
 
-      console.log(`💳 Payment verified: +10 credits added for ${clerkId}`);
+      console.log(`💳 Verified: +10 credits for clerkId=${clerkId}`);
 
       res.json({
         success: true,
@@ -148,9 +150,61 @@ router.post(
         newCredits: user.credits,
       });
     } catch (err) {
-      circuitBreakerFail();
       console.error("❌ [VERIFY-PAYMENT] Error:", err.message);
       res.status(500).json({ error: "Failed to verify payment." });
+    }
+  })
+);
+
+/* -------------------------------------------------------------------------- */
+/* 💳 POST /deduct-credits (Deduct credits when user uses AI feature)         */
+/* -------------------------------------------------------------------------- */
+router.post(
+  "/deduct-credits",
+  requireAuth(),
+  limiter.wrap(async (req, res) => {
+    try {
+      const { userId: clerkId } = getAuth(req);
+      const { amount, reason } = req.body;
+
+      if (!amount || amount <= 0) {
+        return res.status(400).json({ error: "Invalid amount." });
+      }
+
+      const user = await User.findOne({ clerkId });
+      if (!user) {
+        return res.status(404).json({ error: "User not found." });
+      }
+
+      if ((user.credits || 0) < amount) {
+        return res.status(400).json({ error: "Insufficient credits." });
+      }
+
+      // ✅ Deduct credits
+      user.credits -= amount;
+
+      // 🧾 Log deduction
+      user.payments.push({
+        razorpay_order_id: `manual_${Date.now()}`,
+        razorpay_payment_id: null,
+        amount: 0,
+        creditsAdded: -amount,
+        status: "deducted",
+        date: new Date(),
+      });
+
+      await user.save({ validateBeforeSave: false });
+
+      console.log(`💸 Deducted ${amount} credit(s) from ${clerkId}. Reason: ${reason}`);
+
+      res.json({
+        success: true,
+        message: `Deducted ${amount} credit(s).`,
+        newCredits: user.credits,
+      });
+    } catch (err) {
+      console.error("❌ [DEDUCT-CREDITS] Error:", err.message);
+      res.status(500).json({ error: "Failed to deduct credits." });
     }
   })
 );
@@ -201,11 +255,13 @@ console.log("💳 RAZORPAY PAYMENT ROUTES LOADED");
 console.log("📍 Endpoints:");
 console.log("   POST   /create-order");
 console.log("   POST   /verify-payment");
+console.log("   POST   /deduct-credits");
 console.log("   GET    /user-payments");
 console.log("   GET    /payment-health");
 console.log("🛡️  Features:");
 console.log("   • Secure HMAC Signature Verification");
 console.log("   • Auto Credit Addition (+10 on success)");
+console.log("   • Credit Deduction for AI usage");
 console.log("   • Circuit Breaker & Bottleneck Safe");
 console.log("   • Razorpay Order Integration");
 console.log("=".repeat(70) + "\n");

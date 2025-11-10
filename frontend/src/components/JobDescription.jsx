@@ -2,17 +2,23 @@ import React, { useState, useEffect } from "react";
 import { useAuth } from "@clerk/clerk-react";
 import { useNavigate } from "react-router-dom";
 import {
-  ArrowRightCircle, Sparkles, Loader2, AlertCircle,
-  Zap, Brain, Search, BarChart3
+  ArrowRightCircle,
+  Sparkles,
+  Loader2,
+  AlertCircle,
+  Zap,
+  Brain,
+  Search,
+  BarChart3,
 } from "lucide-react";
 import axios from "axios";
 import CountUp from "react-countup";
 
-export default function JobDescription() {  // Remove resumeId prop
+export default function JobDescription() {
   const { getToken } = useAuth();
   const navigate = useNavigate();
 
-  const [resumeId, setResumeId] = useState(null);  // Add state for resumeId
+  const [resumeId, setResumeId] = useState(null);
   const [description, setDescription] = useState("");
   const [charCount, setCharCount] = useState(0);
   const [isLoading, setIsLoading] = useState(false);
@@ -23,19 +29,17 @@ export default function JobDescription() {  // Remove resumeId prop
 
   const API_URL = import.meta.env.VITE_API_URL;
 
-  // Fetch user's latest resume on component mount
+  // Fetch user's latest resume
   useEffect(() => {
     const fetchLatestResume = async () => {
       try {
         const token = await getToken();
         const response = await axios.get(`${API_URL}/user/resumes`, {
-          headers: { Authorization: `Bearer ${token}` }
+          headers: { Authorization: `Bearer ${token}` },
         });
-        
-        // Get the most recent resume
+
         const resumes = response.data?.resumes || response.data?.data || [];
         if (resumes.length > 0) {
-          // Assuming resumes are sorted by date, or get the first one
           setResumeId(resumes[0]._id || resumes[0].id);
         } else {
           setError("No resume found. Please create a resume first.");
@@ -87,7 +91,6 @@ export default function JobDescription() {  // Remove resumeId prop
         await new Promise((resolve) => setTimeout(resolve, 700));
       }
 
-      // Call JD analysis API
       const response = await axios.post(
         `${API_URL}/user/job-description`,
         { jobDescription: description },
@@ -115,35 +118,46 @@ export default function JobDescription() {  // Remove resumeId prop
     try {
       setIsLoading(true);
       setError(null);
+
       const token = await getToken();
+
+      // 💳 Deduct 1 credit before customization
+      try {
+        const res = await axios.post(
+          `${API_URL}/api/payments/deduct-credits`,
+          { amount: 1, reason: "Customized resume" },
+          { headers: { Authorization: `Bearer ${token}` } }
+        );
+        console.log("✅ Credits deducted. New balance:", res.data.newCredits);
+      } catch (deductErr) {
+        console.error("❌ Credit deduction failed:", deductErr);
+        setError(
+          deductErr.response?.data?.error || "Insufficient credits. Please top up."
+        );
+        setIsLoading(false);
+        return;
+      }
 
       console.log("📤 Sending customization request:", { resumeId, jobDescription: description });
 
       const response = await axios.post(
         `${API_URL}/customize-resume`,
-        { 
-          resumeId: resumeId,  // Explicitly send resumeId
-          jobDescription: description 
-        },
+        { resumeId, jobDescription: description },
         { headers: { Authorization: `Bearer ${token}` } }
       );
 
       console.log("✅ Customization response:", response.data);
 
       const { jobId } = response.data;
-      
-      // Navigate to CustomizeResume page with jobId
-      navigate("/customize-resume", { 
-        state: { 
-          resumeId: resumeId,  // Pass resumeId explicitly
-          jobDescription: description, 
-          jobId: jobId
-        } 
+
+      navigate("/customize-resume", {
+        state: { resumeId, jobDescription: description, jobId },
       });
     } catch (err) {
       console.error("❌ Customize Error:", err);
       console.error("Error response:", err.response?.data);
       setError(err.response?.data?.error || err.message || "Failed to enqueue customization.");
+    } finally {
       setIsLoading(false);
     }
   };
@@ -152,8 +166,7 @@ export default function JobDescription() {  // Remove resumeId prop
 
   return (
     <div className="min-h-screen flex items-center justify-center bg-gradient-to-br from-slate-900 via-purple-900 to-slate-900 p-4 sm:p-6 pt-24 sm:pt-32 relative overflow-hidden">
-      
-      {/* Animated Background Orbs */}
+      {/* Animated Background */}
       <div className="absolute top-20 left-10 w-72 h-72 bg-purple-500 rounded-full mix-blend-multiply filter blur-3xl opacity-20 animate-blob"></div>
       <div className="absolute top-40 right-10 w-72 h-72 bg-violet-500 rounded-full mix-blend-multiply filter blur-3xl opacity-20 animate-blob animation-delay-2000"></div>
       <div className="absolute -bottom-8 left-20 w-72 h-72 bg-pink-500 rounded-full mix-blend-multiply filter blur-3xl opacity-20 animate-blob animation-delay-4000"></div>
@@ -174,7 +187,6 @@ export default function JobDescription() {  // Remove resumeId prop
         <div className="relative">
           <div className="absolute -inset-1 bg-gradient-to-r from-violet-600 via-purple-600 to-pink-600 rounded-3xl blur-2xl opacity-50"></div>
           <div className="relative bg-white/10 backdrop-blur-2xl border border-white/20 rounded-3xl p-6 sm:p-10 shadow-2xl">
-
             {isLoading && (
               <div className="absolute inset-0 bg-slate-900/95 backdrop-blur-md rounded-3xl flex flex-col items-center justify-center z-50 space-y-6">
                 <div className="relative">
@@ -273,7 +285,11 @@ export default function JobDescription() {  // Remove resumeId prop
                   required
                 />
                 <div className="absolute bottom-4 right-4 px-3 py-1 bg-white/10 backdrop-blur-sm rounded-lg border border-white/20">
-                  <span className={`text-sm font-medium ${charCount > 0 ? "text-violet-300" : "text-gray-400"}`}>
+                  <span
+                    className={`text-sm font-medium ${
+                      charCount > 0 ? "text-violet-300" : "text-gray-400"
+                    }`}
+                  >
                     {charCount} characters
                   </span>
                 </div>
@@ -284,9 +300,10 @@ export default function JobDescription() {  // Remove resumeId prop
                 onClick={handleSubmit}
                 disabled={description.length < 50 || isLoading}
                 className={`group relative w-full py-5 px-6 rounded-xl font-semibold text-lg overflow-hidden transition-all duration-300
-                  ${description.length >= 50 && !isLoading
-                    ? "bg-gradient-to-r from-violet-600 to-indigo-600 hover:shadow-2xl hover:shadow-violet-500/50 hover:scale-[1.02] active:scale-[0.98]"
-                    : "bg-gray-600 cursor-not-allowed opacity-50"
+                  ${
+                    description.length >= 50 && !isLoading
+                      ? "bg-gradient-to-r from-violet-600 to-indigo-600 hover:shadow-2xl hover:shadow-violet-500/50 hover:scale-[1.02] active:scale-[0.98]"
+                      : "bg-gray-600 cursor-not-allowed opacity-50"
                   }`}
               >
                 <span className="relative z-10 flex items-center justify-center space-x-3 text-white">
