@@ -1,5 +1,4 @@
-// Payment.jsx - Ultra-Scalable Payment Component
-// Copy this entire file to your /src/pages or /src/components directory
+// Payment.jsx - Fixed Version with Enhanced Logging for Live Mode Debugging
 
 import React, { useState, useEffect, useCallback, useMemo } from "react";
 import { useAuth } from "@clerk/clerk-react";
@@ -15,7 +14,6 @@ export default function Payment() {
   const { getToken } = useAuth();
   const navigate = useNavigate();
 
-  // State management - optimized for performance
   const [credits, setCredits] = useState(0);
   const [payments, setPayments] = useState([]);
   const [isLoading, setIsLoading] = useState(false);
@@ -27,7 +25,24 @@ export default function Payment() {
   const API_URL = import.meta.env.VITE_API_URL;
   const RAZORPAY_KEY = import.meta.env.VITE_RAZORPAY_KEY_ID;
 
-  // Memoized loading stages - prevents unnecessary re-renders
+  // Log environment on mount
+  useEffect(() => {
+    console.log("═══════════════════════════════════════");
+    console.log("🎨 FRONTEND: Payment Component Mounted");
+    console.log("═══════════════════════════════════════");
+    console.log("🔑 Razorpay Key:", RAZORPAY_KEY);
+    console.log("🌐 API URL:", API_URL);
+    
+    if (RAZORPAY_KEY?.startsWith('rzp_test_')) {
+      console.warn("⚠️  FRONTEND: Using TEST mode key!");
+    } else if (RAZORPAY_KEY?.startsWith('rzp_live_')) {
+      console.log("🟢 FRONTEND: Using LIVE mode key");
+    } else {
+      console.error("❌ FRONTEND: Invalid or missing Razorpay key!");
+    }
+    console.log("═══════════════════════════════════════\n");
+  }, [RAZORPAY_KEY, API_URL]);
+
   const loadingStages = useMemo(() => [
     { icon: Shield, text: "Initializing secure payment...", color: "from-blue-500 to-cyan-500" },
     { icon: CreditCard, text: "Creating payment order...", color: "from-purple-500 to-pink-500" },
@@ -35,82 +50,128 @@ export default function Payment() {
     { icon: CheckCircle2, text: "Processing payment...", color: "from-green-500 to-emerald-500" },
   ], []);
 
-  // Fetch user credits and payment history - memoized with useCallback
   const fetchUserData = useCallback(async () => {
     try {
       setIsFetchingData(true);
       const token = await getToken();
       
+      console.log("📞 FRONTEND: Fetching user data...");
       const response = await axios.get(`${API_URL}/payments/user-payments`, {
         headers: { Authorization: `Bearer ${token}` }
       });
 
+      console.log("✅ FRONTEND: User data fetched");
+      console.log("💰 Current Credits:", response.data?.credits || 0);
+      console.log("📊 Payment History Count:", response.data?.payments?.length || 0);
+
       setCredits(response.data?.credits || 0);
       setPayments(response.data?.payments || []);
     } catch (err) {
-      console.error("❌ Failed to fetch user data:", err);
-      // Silent fail for better UX - no intrusive error messages on load
+      console.error("❌ FRONTEND: Failed to fetch user data:", err);
     } finally {
       setIsFetchingData(false);
     }
   }, [getToken, API_URL]);
 
-  // Load data on mount
   useEffect(() => {
     fetchUserData();
   }, [fetchUserData]);
 
-  // Load Razorpay script dynamically - prevents blocking main bundle
   const loadRazorpayScript = useCallback(() => {
     return new Promise((resolve) => {
-      // Check if script already exists
       const existingScript = document.getElementById("razorpay-sdk");
       if (existingScript) {
+        console.log("✅ FRONTEND: Razorpay script already loaded");
         resolve(true);
         return;
       }
 
+      console.log("📦 FRONTEND: Loading Razorpay SDK...");
       const script = document.createElement("script");
       script.id = "razorpay-sdk";
       script.src = "https://checkout.razorpay.com/v1/checkout.js";
       script.async = true;
-      script.onload = () => resolve(true);
-      script.onerror = () => resolve(false);
+      script.onload = () => {
+        console.log("✅ FRONTEND: Razorpay SDK loaded successfully");
+        resolve(true);
+      };
+      script.onerror = () => {
+        console.error("❌ FRONTEND: Failed to load Razorpay SDK");
+        resolve(false);
+      };
       document.body.appendChild(script);
     });
   }, []);
 
-  // Main payment handler - highly optimized
   const handlePayment = async () => {
+    console.log("\n" + "═".repeat(70));
+    console.log("🎯 FRONTEND: PAYMENT PROCESS STARTED");
+    console.log("═".repeat(70));
+    
     setIsLoading(true);
     setError(null);
     setSuccess(null);
     setLoadingStage(0);
 
     try {
+      // Get auth token
+      console.log("🔐 FRONTEND: Getting auth token...");
       const token = await getToken();
-      if (!token) throw new Error("Authentication required. Please log in.");
+      
+      if (!token) {
+        console.error("❌ FRONTEND: No auth token available");
+        throw new Error("Authentication required. Please log in.");
+      }
+      console.log("✅ FRONTEND: Auth token obtained");
 
-      // Stage 1: Load Razorpay SDK (async, non-blocking)
+      // Stage 1: Load Razorpay SDK
       setLoadingStage(0);
       const scriptLoaded = await loadRazorpayScript();
-      if (!scriptLoaded) throw new Error("Failed to load payment gateway");
-
+      if (!scriptLoaded) {
+        console.error("❌ FRONTEND: Razorpay SDK failed to load");
+        throw new Error("Failed to load payment gateway");
+      }
       await new Promise((resolve) => setTimeout(resolve, 500));
 
       // Stage 2: Create Razorpay order
       setLoadingStage(1);
+      console.log("📞 FRONTEND: Calling create-order API...");
+      console.log("🌐 URL:", `${API_URL}/payments/create-order`);
+      
       const orderResponse = await axios.post(
         `${API_URL}/payments/create-order`,
         {},
-        { headers: { Authorization: `Bearer ${token}` } }
+        { 
+          headers: { 
+            Authorization: `Bearer ${token}`,
+            'Content-Type': 'application/json'
+          } 
+        }
       );
 
+      console.log("✅ FRONTEND: Order created successfully");
+      console.log("📋 Order Response:", orderResponse.data);
+
       const { orderId, amount, currency, key } = orderResponse.data;
+      
+      console.log("🆔 Order ID:", orderId);
+      console.log("💰 Amount:", amount, "paise (₹" + (amount/100) + ")");
+      console.log("💱 Currency:", currency);
+      console.log("🔑 Razorpay Key from backend:", key);
+
+      // Verify key format
+      if (key?.startsWith('rzp_test_')) {
+        console.warn("⚠️  FRONTEND: Backend returned TEST mode key");
+      } else if (key?.startsWith('rzp_live_')) {
+        console.log("🟢 FRONTEND: Backend returned LIVE mode key");
+      }
+
       await new Promise((resolve) => setTimeout(resolve, 500));
 
       // Stage 3: Initialize Razorpay
       setLoadingStage(2);
+      console.log("🚀 FRONTEND: Initializing Razorpay checkout...");
+      
       const options = {
         key: key || RAZORPAY_KEY,
         amount,
@@ -118,10 +179,20 @@ export default function Payment() {
         name: "Resume Builder Pro",
         description: "10 Resume Credits",
         order_id: orderId,
+        
+        // ✅ CRITICAL: Payment success handler
         handler: async (response) => {
+          console.log("\n" + "═".repeat(70));
+          console.log("✅ FRONTEND: PAYMENT SUCCESSFUL!");
+          console.log("═".repeat(70));
+          console.log("🆔 Order ID:", response.razorpay_order_id);
+          console.log("💳 Payment ID:", response.razorpay_payment_id);
+          console.log("🔐 Signature (first 20 chars):", response.razorpay_signature?.substring(0, 20) + "...");
+          
           setLoadingStage(3);
           await verifyPayment(response, token);
         },
+        
         prefill: {
           name: "",
           email: "",
@@ -132,17 +203,49 @@ export default function Payment() {
         },
         modal: {
           ondismiss: () => {
+            console.warn("⚠️  FRONTEND: User closed payment modal");
             setIsLoading(false);
             setLoadingStage(0);
           },
         },
       };
 
+      // Open Razorpay
+      console.log("🎨 FRONTEND: Opening Razorpay modal...");
       const razorpay = new window.Razorpay(options);
+      
+      // Add payment failure handler
+      razorpay.on('payment.failed', function (response) {
+        console.error("\n" + "═".repeat(70));
+        console.error("❌ FRONTEND: PAYMENT FAILED!");
+        console.error("═".repeat(70));
+        console.error("Error Code:", response.error.code);
+        console.error("Error Description:", response.error.description);
+        console.error("Error Source:", response.error.source);
+        console.error("Error Step:", response.error.step);
+        console.error("Error Reason:", response.error.reason);
+        console.error("Order ID:", response.error.metadata?.order_id);
+        console.error("Payment ID:", response.error.metadata?.payment_id);
+        console.error("═".repeat(70) + "\n");
+        
+        setError(`Payment failed: ${response.error.description}`);
+        setIsLoading(false);
+        setLoadingStage(0);
+      });
+
       razorpay.open();
       setIsLoading(false);
+      console.log("✅ FRONTEND: Razorpay modal opened");
+      
     } catch (err) {
-      console.error("❌ Payment Error:", err);
+      console.error("\n" + "═".repeat(70));
+      console.error("❌ FRONTEND: PAYMENT ERROR");
+      console.error("═".repeat(70));
+      console.error("Error Message:", err.message);
+      console.error("Error Response:", err.response?.data);
+      console.error("Full Error:", err);
+      console.error("═".repeat(70) + "\n");
+      
       setError(err.response?.data?.error || err.message || "Payment failed. Please try again.");
       setIsLoading(false);
       setLoadingStage(0);
@@ -152,22 +255,54 @@ export default function Payment() {
   // Verify payment on backend
   const verifyPayment = async (paymentResponse, token) => {
     try {
+      console.log("📞 FRONTEND: Calling verify-payment API...");
+      console.log("🌐 URL:", `${API_URL}/payments/verify-payment`);
+      console.log("📦 Payload:", {
+        razorpay_order_id: paymentResponse.razorpay_order_id,
+        razorpay_payment_id: paymentResponse.razorpay_payment_id,
+        razorpay_signature: paymentResponse.razorpay_signature?.substring(0, 20) + "..."
+      });
+
       const response = await axios.post(
         `${API_URL}/payments/verify-payment`,
-        paymentResponse,
-        { headers: { Authorization: `Bearer ${token}` } }
+        {
+          razorpay_order_id: paymentResponse.razorpay_order_id,
+          razorpay_payment_id: paymentResponse.razorpay_payment_id,
+          razorpay_signature: paymentResponse.razorpay_signature,
+        },
+        { 
+          headers: { 
+            Authorization: `Bearer ${token}`,
+            'Content-Type': 'application/json'
+          } 
+        }
       );
+
+      console.log("✅ FRONTEND: Payment verified successfully!");
+      console.log("📋 Verification Response:", response.data);
+      console.log("💰 New Credits:", response.data?.newCredits);
+      console.log("═".repeat(70) + "\n");
 
       setSuccess("Payment successful! 10 credits added to your account.");
       setCredits(response.data?.newCredits || credits + 10);
       
       // Refresh payment history after delay
       setTimeout(() => {
+        console.log("🔄 FRONTEND: Refreshing user data...");
         fetchUserData();
         setSuccess(null);
       }, 3000);
+      
     } catch (err) {
-      console.error("❌ Verification Error:", err);
+      console.error("\n" + "═".repeat(70));
+      console.error("❌ FRONTEND: VERIFICATION FAILED!");
+      console.error("═".repeat(70));
+      console.error("Error Message:", err.message);
+      console.error("Error Response:", err.response?.data);
+      console.error("Status Code:", err.response?.status);
+      console.error("Full Error:", err);
+      console.error("═".repeat(70) + "\n");
+      
       setError("Payment verification failed. Contact support if amount was deducted.");
     } finally {
       setIsLoading(false);
@@ -180,7 +315,7 @@ export default function Payment() {
   return (
     <div className="min-h-screen flex items-center justify-center bg-gradient-to-br from-slate-900 via-purple-900 to-slate-900 p-4 sm:p-6 pt-24 sm:pt-32 relative overflow-hidden">
       
-      {/* Animated Background Orbs - GPU accelerated */}
+      {/* Animated Background Orbs */}
       <div className="absolute top-20 left-10 w-72 h-72 bg-purple-500 rounded-full mix-blend-multiply filter blur-3xl opacity-20 animate-blob"></div>
       <div className="absolute top-40 right-10 w-72 h-72 bg-violet-500 rounded-full mix-blend-multiply filter blur-3xl opacity-20 animate-blob animation-delay-2000"></div>
       <div className="absolute -bottom-8 left-20 w-72 h-72 bg-pink-500 rounded-full mix-blend-multiply filter blur-3xl opacity-20 animate-blob animation-delay-4000"></div>
@@ -269,8 +404,8 @@ export default function Payment() {
                   <p className="text-gray-300 text-sm">Perfect for job seekers</p>
                 </div>
                 <div className="text-right">
-                  <div className="text-4xl font-bold text-white">₹200</div>
-                  <p className="text-gray-400 text-sm">One-time payment</p>
+                  <div className="text-4xl font-bold text-white">₹1</div>
+                  <p className="text-gray-400 text-sm">Testing Mode</p>
                 </div>
               </div>
 
@@ -320,7 +455,7 @@ export default function Payment() {
                   ) : (
                     <>
                       <CreditCard className="w-6 h-6" />
-                      <span>Buy 10 Credits - ₹200</span>
+                      <span>Buy 10 Credits - ₹1 (Test)</span>
                       <ArrowRight className="w-6 h-6 group-hover:translate-x-1 transition-transform" />
                     </>
                   )}
