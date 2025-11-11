@@ -1,7 +1,7 @@
-// Payment.jsx - Fixed Version with Enhanced Logging for Live Mode Debugging
+// Payment.jsx - ULTRA DEBUG VERSION - Catches all auth issues
 
 import React, { useState, useEffect, useCallback, useMemo } from "react";
-import { useAuth } from "@clerk/clerk-react";
+import { useAuth, useUser } from "@clerk/clerk-react";
 import { useNavigate } from "react-router-dom";
 import {
   CreditCard, Sparkles, Loader2, AlertCircle, CheckCircle2,
@@ -11,7 +11,8 @@ import axios from "axios";
 import CountUp from "react-countup";
 
 export default function Payment() {
-  const { getToken } = useAuth();
+  const { getToken, isLoaded: authLoaded, isSignedIn, userId } = useAuth();
+  const { user, isLoaded: userLoaded } = useUser();
   const navigate = useNavigate();
 
   const [credits, setCredits] = useState(0);
@@ -25,13 +26,18 @@ export default function Payment() {
   const API_URL = import.meta.env.VITE_API_URL;
   const RAZORPAY_KEY = import.meta.env.VITE_RAZORPAY_KEY_ID;
 
-  // Log environment on mount
+  // ✅ CRITICAL: Check auth status on mount
   useEffect(() => {
-    console.log("═══════════════════════════════════════");
+    console.log("\n" + "═".repeat(70));
     console.log("🎨 FRONTEND: Payment Component Mounted");
-    console.log("═══════════════════════════════════════");
+    console.log("═".repeat(70));
     console.log("🔑 Razorpay Key:", RAZORPAY_KEY);
     console.log("🌐 API URL:", API_URL);
+    console.log("👤 Auth Loaded:", authLoaded);
+    console.log("👤 Is Signed In:", isSignedIn);
+    console.log("👤 User ID:", userId);
+    console.log("👤 User Loaded:", userLoaded);
+    console.log("👤 User Email:", user?.primaryEmailAddress?.emailAddress || "N/A");
     
     if (RAZORPAY_KEY?.startsWith('rzp_test_')) {
       console.warn("⚠️  FRONTEND: Using TEST mode key!");
@@ -40,8 +46,15 @@ export default function Payment() {
     } else {
       console.error("❌ FRONTEND: Invalid or missing Razorpay key!");
     }
-    console.log("═══════════════════════════════════════\n");
-  }, [RAZORPAY_KEY, API_URL]);
+
+    // Check if user is authenticated
+    if (authLoaded && !isSignedIn) {
+      console.error("❌ FRONTEND: User not authenticated! Redirecting to login...");
+      navigate("/sign-in");
+    }
+    
+    console.log("═".repeat(70) + "\n");
+  }, [authLoaded, isSignedIn, userId, userLoaded, user, RAZORPAY_KEY, API_URL, navigate]);
 
   const loadingStages = useMemo(() => [
     { icon: Shield, text: "Initializing secure payment...", color: "from-blue-500 to-cyan-500" },
@@ -53,29 +66,63 @@ export default function Payment() {
   const fetchUserData = useCallback(async () => {
     try {
       setIsFetchingData(true);
-      const token = await getToken();
       
       console.log("📞 FRONTEND: Fetching user data...");
+      console.log("👤 Auth Status - Signed In:", isSignedIn);
+      console.log("👤 Auth Status - User ID:", userId);
+      
+      if (!isSignedIn) {
+        console.error("❌ FRONTEND: Not signed in, cannot fetch data");
+        return;
+      }
+
+      const token = await getToken();
+      
+      if (!token) {
+        console.error("❌ FRONTEND: Failed to get auth token!");
+        console.error("💡 HINT: User might need to log in again");
+        setError("Session expired. Please log in again.");
+        setTimeout(() => navigate("/sign-in"), 2000);
+        return;
+      }
+
+      console.log("✅ FRONTEND: Auth token obtained");
+      console.log("🔑 Token (first 20 chars):", token.substring(0, 20) + "...");
+
       const response = await axios.get(`${API_URL}/payments/user-payments`, {
-        headers: { Authorization: `Bearer ${token}` }
+        headers: { 
+          Authorization: `Bearer ${token}`,
+          'Content-Type': 'application/json'
+        }
       });
 
-      console.log("✅ FRONTEND: User data fetched");
+      console.log("✅ FRONTEND: User data fetched successfully");
       console.log("💰 Current Credits:", response.data?.credits || 0);
       console.log("📊 Payment History Count:", response.data?.payments?.length || 0);
 
       setCredits(response.data?.credits || 0);
       setPayments(response.data?.payments || []);
     } catch (err) {
-      console.error("❌ FRONTEND: Failed to fetch user data:", err);
+      console.error("❌ FRONTEND: Failed to fetch user data");
+      console.error("Error:", err.message);
+      console.error("Response:", err.response?.data);
+      console.error("Status:", err.response?.status);
+      
+      if (err.response?.status === 401) {
+        console.error("🔐 FRONTEND: Unauthorized - token might be expired");
+        setError("Session expired. Please log in again.");
+        setTimeout(() => navigate("/sign-in"), 2000);
+      }
     } finally {
       setIsFetchingData(false);
     }
-  }, [getToken, API_URL]);
+  }, [getToken, API_URL, isSignedIn, userId, navigate]);
 
   useEffect(() => {
-    fetchUserData();
-  }, [fetchUserData]);
+    if (authLoaded && isSignedIn) {
+      fetchUserData();
+    }
+  }, [authLoaded, isSignedIn, fetchUserData]);
 
   const loadRazorpayScript = useCallback(() => {
     return new Promise((resolve) => {
@@ -114,15 +161,43 @@ export default function Payment() {
     setLoadingStage(0);
 
     try {
+      // ✅ CRITICAL: Verify auth state BEFORE payment
+      console.log("🔐 FRONTEND: Verifying auth state...");
+      console.log("   Auth Loaded:", authLoaded);
+      console.log("   Is Signed In:", isSignedIn);
+      console.log("   User ID:", userId);
+      console.log("   User Email:", user?.primaryEmailAddress?.emailAddress || "N/A");
+
+      if (!authLoaded) {
+        console.error("❌ FRONTEND: Auth not loaded yet!");
+        throw new Error("Loading authentication...");
+      }
+
+      if (!isSignedIn) {
+        console.error("❌ FRONTEND: User not signed in!");
+        throw new Error("Please sign in to continue");
+      }
+
+      if (!userId) {
+        console.error("❌ FRONTEND: No user ID found!");
+        throw new Error("Authentication error. Please sign in again.");
+      }
+
+      console.log("✅ FRONTEND: Auth state verified");
+
       // Get auth token
       console.log("🔐 FRONTEND: Getting auth token...");
       const token = await getToken();
       
       if (!token) {
         console.error("❌ FRONTEND: No auth token available");
-        throw new Error("Authentication required. Please log in.");
+        console.error("💡 HINT: Session might be expired");
+        throw new Error("Session expired. Please log in again.");
       }
+      
       console.log("✅ FRONTEND: Auth token obtained");
+      console.log("🔑 Token length:", token.length);
+      console.log("🔑 Token preview (first 30 chars):", token.substring(0, 30) + "...");
 
       // Stage 1: Load Razorpay SDK
       setLoadingStage(0);
@@ -137,6 +212,7 @@ export default function Payment() {
       setLoadingStage(1);
       console.log("📞 FRONTEND: Calling create-order API...");
       console.log("🌐 URL:", `${API_URL}/payments/create-order`);
+      console.log("🔑 Sending token in Authorization header");
       
       const orderResponse = await axios.post(
         `${API_URL}/payments/create-order`,
@@ -145,7 +221,8 @@ export default function Payment() {
           headers: { 
             Authorization: `Bearer ${token}`,
             'Content-Type': 'application/json'
-          } 
+          },
+          timeout: 30000 // 30 second timeout
         }
       );
 
@@ -159,11 +236,9 @@ export default function Payment() {
       console.log("💱 Currency:", currency);
       console.log("🔑 Razorpay Key from backend:", key);
 
-      // Verify key format
-      if (key?.startsWith('rzp_test_')) {
-        console.warn("⚠️  FRONTEND: Backend returned TEST mode key");
-      } else if (key?.startsWith('rzp_live_')) {
-        console.log("🟢 FRONTEND: Backend returned LIVE mode key");
+      if (!orderId) {
+        console.error("❌ FRONTEND: No order ID received!");
+        throw new Error("Failed to create payment order");
       }
 
       await new Promise((resolve) => setTimeout(resolve, 500));
@@ -183,20 +258,21 @@ export default function Payment() {
         // ✅ CRITICAL: Payment success handler
         handler: async (response) => {
           console.log("\n" + "═".repeat(70));
-          console.log("✅ FRONTEND: PAYMENT SUCCESSFUL!");
+          console.log("✅ FRONTEND: RAZORPAY PAYMENT SUCCESSFUL!");
           console.log("═".repeat(70));
           console.log("🆔 Order ID:", response.razorpay_order_id);
           console.log("💳 Payment ID:", response.razorpay_payment_id);
           console.log("🔐 Signature (first 20 chars):", response.razorpay_signature?.substring(0, 20) + "...");
+          console.log("═".repeat(70) + "\n");
           
           setLoadingStage(3);
-          await verifyPayment(response, token);
+          await verifyPayment(response);
         },
         
         prefill: {
-          name: "",
-          email: "",
-          contact: "",
+          name: user?.fullName || "",
+          email: user?.primaryEmailAddress?.emailAddress || "",
+          contact: user?.primaryPhoneNumber?.phoneNumber || "",
         },
         theme: {
           color: "#8b5cf6",
@@ -210,14 +286,18 @@ export default function Payment() {
         },
       };
 
-      // Open Razorpay
-      console.log("🎨 FRONTEND: Opening Razorpay modal...");
+      console.log("🎨 FRONTEND: Opening Razorpay modal with options:", {
+        key: options.key,
+        amount: options.amount,
+        order_id: options.order_id,
+        prefill: options.prefill
+      });
+
       const razorpay = new window.Razorpay(options);
       
-      // Add payment failure handler
       razorpay.on('payment.failed', function (response) {
         console.error("\n" + "═".repeat(70));
-        console.error("❌ FRONTEND: PAYMENT FAILED!");
+        console.error("❌ FRONTEND: RAZORPAY PAYMENT FAILED!");
         console.error("═".repeat(70));
         console.error("Error Code:", response.error.code);
         console.error("Error Description:", response.error.description);
@@ -235,7 +315,7 @@ export default function Payment() {
 
       razorpay.open();
       setIsLoading(false);
-      console.log("✅ FRONTEND: Razorpay modal opened");
+      console.log("✅ FRONTEND: Razorpay modal opened successfully");
       
     } catch (err) {
       console.error("\n" + "═".repeat(70));
@@ -243,18 +323,47 @@ export default function Payment() {
       console.error("═".repeat(70));
       console.error("Error Message:", err.message);
       console.error("Error Response:", err.response?.data);
+      console.error("Error Status:", err.response?.status);
+      console.error("Error Headers:", err.response?.headers);
       console.error("Full Error:", err);
       console.error("═".repeat(70) + "\n");
       
-      setError(err.response?.data?.error || err.message || "Payment failed. Please try again.");
+      let errorMessage = "Payment failed. Please try again.";
+      
+      if (err.response?.status === 401) {
+        errorMessage = "Session expired. Please log in again.";
+        setTimeout(() => navigate("/sign-in"), 2000);
+      } else if (err.response?.status === 404) {
+        errorMessage = "User account not found. Please contact support.";
+      } else if (err.message) {
+        errorMessage = err.message;
+      }
+      
+      setError(errorMessage);
       setIsLoading(false);
       setLoadingStage(0);
     }
   };
 
   // Verify payment on backend
-  const verifyPayment = async (paymentResponse, token) => {
+  const verifyPayment = async (paymentResponse) => {
     try {
+      console.log("\n" + "═".repeat(70));
+      console.log("📞 FRONTEND: Starting payment verification...");
+      console.log("═".repeat(70));
+
+      // Get fresh token for verification
+      console.log("🔐 FRONTEND: Getting fresh auth token for verification...");
+      const token = await getToken();
+      
+      if (!token) {
+        console.error("❌ FRONTEND: No token available for verification!");
+        throw new Error("Authentication failed. Please log in again.");
+      }
+
+      console.log("✅ FRONTEND: Fresh token obtained");
+      console.log("🔑 Token length:", token.length);
+
       console.log("📞 FRONTEND: Calling verify-payment API...");
       console.log("🌐 URL:", `${API_URL}/payments/verify-payment`);
       console.log("📦 Payload:", {
@@ -274,16 +383,18 @@ export default function Payment() {
           headers: { 
             Authorization: `Bearer ${token}`,
             'Content-Type': 'application/json'
-          } 
+          },
+          timeout: 30000 // 30 second timeout
         }
       );
 
       console.log("✅ FRONTEND: Payment verified successfully!");
       console.log("📋 Verification Response:", response.data);
       console.log("💰 New Credits:", response.data?.newCredits);
+      console.log("🎁 Credits Added:", response.data?.creditsAdded);
       console.log("═".repeat(70) + "\n");
 
-      setSuccess("Payment successful! 10 credits added to your account.");
+      setSuccess(`Payment successful! ${response.data?.creditsAdded || 10} credits added to your account.`);
       setCredits(response.data?.newCredits || credits + 10);
       
       // Refresh payment history after delay
@@ -300,15 +411,54 @@ export default function Payment() {
       console.error("Error Message:", err.message);
       console.error("Error Response:", err.response?.data);
       console.error("Status Code:", err.response?.status);
+      console.error("Response Headers:", err.response?.headers);
       console.error("Full Error:", err);
       console.error("═".repeat(70) + "\n");
       
-      setError("Payment verification failed. Contact support if amount was deducted.");
+      let errorMessage = "Payment verification failed. Contact support if amount was deducted.";
+      
+      if (err.response?.status === 401) {
+        errorMessage = "Session expired during verification. Please contact support with your payment ID.";
+      } else if (err.response?.data?.error) {
+        errorMessage = err.response.data.error;
+      }
+      
+      setError(errorMessage);
     } finally {
       setIsLoading(false);
       setLoadingStage(0);
     }
   };
+
+  // Show loading while auth is loading
+  if (!authLoaded || !userLoaded) {
+    return (
+      <div className="min-h-screen flex items-center justify-center bg-gradient-to-br from-slate-900 via-purple-900 to-slate-900">
+        <div className="text-center">
+          <Loader2 className="w-12 h-12 animate-spin text-violet-400 mx-auto mb-4" />
+          <p className="text-white text-lg">Loading authentication...</p>
+        </div>
+      </div>
+    );
+  }
+
+  // Redirect if not signed in
+  if (!isSignedIn) {
+    return (
+      <div className="min-h-screen flex items-center justify-center bg-gradient-to-br from-slate-900 via-purple-900 to-slate-900">
+        <div className="text-center">
+          <AlertCircle className="w-12 h-12 text-red-400 mx-auto mb-4" />
+          <p className="text-white text-lg mb-4">Please sign in to continue</p>
+          <button
+            onClick={() => navigate("/sign-in")}
+            className="px-6 py-3 bg-violet-600 text-white rounded-lg hover:bg-violet-700"
+          >
+            Go to Sign In
+          </button>
+        </div>
+      </div>
+    );
+  }
 
   const CurrentStageIcon = loadingStages[loadingStage]?.icon || Shield;
 
@@ -331,6 +481,10 @@ export default function Payment() {
           </h1>
           <p className="text-xl text-gray-300 max-w-2xl mx-auto">
             Get more resume customizations and unlock advanced features
+          </p>
+          {/* Show logged in user info for debugging */}
+          <p className="text-sm text-gray-500 mt-2">
+            Logged in as: {user?.primaryEmailAddress?.emailAddress || "Unknown"}
           </p>
         </div>
 
@@ -443,7 +597,7 @@ export default function Payment() {
               {/* Payment Button */}
               <button
                 onClick={handlePayment}
-                disabled={isLoading}
+                disabled={isLoading || !isSignedIn}
                 className="group relative w-full py-4 px-6 rounded-xl font-semibold text-lg overflow-hidden transition-all duration-300 bg-gradient-to-r from-violet-600 to-indigo-600 hover:shadow-2xl hover:shadow-violet-500/50 hover:scale-[1.02] active:scale-[0.98] disabled:opacity-50 disabled:cursor-not-allowed"
               >
                 <span className="relative z-10 flex items-center justify-center space-x-3 text-white">
