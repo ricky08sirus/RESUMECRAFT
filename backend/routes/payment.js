@@ -55,7 +55,7 @@ const customAuthMiddleware = (req, res, next) => {
 /* 🎯 PAYMENT CONFIGURATION                                                  */
 /* ========================================================================== */
 const PAYMENT_CONFIG = {
-  AMOUNT: 1, // 👈 CHANGE THIS: 1 for testing, 200 for production
+  AMOUNT: 200, // 👈 CHANGE THIS: 1 for testing, 200 for production
   CREDITS_PER_PAYMENT: 10,
   CURRENCY: "INR",
 };

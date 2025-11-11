@@ -558,7 +558,7 @@ export default function Payment() {
                   <p className="text-gray-300 text-sm">Perfect for job seekers</p>
                 </div>
                 <div className="text-right">
-                  <div className="text-4xl font-bold text-white">₹1</div>
+                  <div className="text-4xl font-bold text-white">₹200</div>
                   <p className="text-gray-400 text-sm">Testing Mode</p>
                 </div>
               </div>
@@ -609,7 +609,7 @@ export default function Payment() {
                   ) : (
                     <>
                       <CreditCard className="w-6 h-6" />
-                      <span>Buy 10 Credits - ₹1 (Test)</span>
+                      <span>Buy 10 Credits - ₹200 </span>
                       <ArrowRight className="w-6 h-6 group-hover:translate-x-1 transition-transform" />
                     </>
                   )}
