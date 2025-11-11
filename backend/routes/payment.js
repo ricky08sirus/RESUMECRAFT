@@ -1,4 +1,4 @@
-// routes/payment.js - Razorpay Integration + Credit System (Enhanced with Testing)
+// routes/payment.js - Production Ready with Easy Test/Live Switching
 
 import express from "express";
 import Razorpay from "razorpay";
@@ -9,17 +9,44 @@ import User from "../models/User.js";
 
 const router = express.Router();
 
-/* -------------------------------------------------------------------------- */
+/* ========================================================================== */
+/* 🎯 PAYMENT CONFIGURATION - CHANGE THIS FOR TEST/PRODUCTION                */
+/* ========================================================================== */
+
+const PAYMENT_CONFIG = {
+  // 🧪 TEST MODE: ₹1
+  // 🚀 PRODUCTION MODE: ₹200
+  AMOUNT: 1, // 👈 CHANGE THIS: 1 for testing, 200 for production
+  
+  CREDITS_PER_PAYMENT: 10, // 👈 CHANGE THIS: Credits to add per successful payment
+  
+  // Don't change below unless you know what you're doing
+  CURRENCY: "INR",
+};
+
+console.log("\n" + "🎯".repeat(35));
+console.log("💰 PAYMENT CONFIGURATION:");
+console.log("   Amount: ₹" + PAYMENT_CONFIG.AMOUNT);
+console.log("   Credits: " + PAYMENT_CONFIG.CREDITS_PER_PAYMENT + " per payment");
+console.log("   Currency: " + PAYMENT_CONFIG.CURRENCY);
+if (PAYMENT_CONFIG.AMOUNT === 1) {
+  console.log("   Mode: 🧪 TESTING MODE (₹1)");
+} else {
+  console.log("   Mode: 🚀 PRODUCTION MODE (₹" + PAYMENT_CONFIG.AMOUNT + ")");
+}
+console.log("🎯".repeat(35) + "\n");
+
+/* ========================================================================== */
 /* 🧠 RAZORPAY INSTANCE                                                       */
-/* -------------------------------------------------------------------------- */
+/* ========================================================================== */
 const razorpay = new Razorpay({
   key_id: process.env.RAZORPAY_KEY_ID,
   key_secret: process.env.RAZORPAY_KEY_SECRET,
 });
 
-/* -------------------------------------------------------------------------- */
-/* ⚙️ RATE LIMITER (Bottleneck-based for fairness)                            */
-/* -------------------------------------------------------------------------- */
+/* ========================================================================== */
+/* ⚙️ RATE LIMITER (Bottleneck-based for fairness)                           */
+/* ========================================================================== */
 const limiter = new Bottleneck({
   minTime: 50,
   maxConcurrent: 10,
@@ -37,9 +64,9 @@ limiter.on("failed", async (error, jobInfo) => {
   }
 });
 
-/* -------------------------------------------------------------------------- */
-/* 🧩 CIRCUIT BREAKER (Safe fallback for payment routes)                      */
-/* -------------------------------------------------------------------------- */
+/* ========================================================================== */
+/* 🧩 CIRCUIT BREAKER (Safe fallback for payment routes)                     */
+/* ========================================================================== */
 let paymentFailureCount = 0;
 let isPaymentHealthy = true;
 const MAX_PAYMENT_FAILURES = 5;
@@ -57,9 +84,9 @@ function circuitBreakerFail() {
   }
 }
 
-/* -------------------------------------------------------------------------- */
-/* 💰 POST /create-order (Creates Razorpay Order)                             */
-/* -------------------------------------------------------------------------- */
+/* ========================================================================== */
+/* 💰 POST /create-order (Creates Razorpay Order)                            */
+/* ========================================================================== */
 router.post(
   "/create-order",
   requireAuth(),
@@ -86,17 +113,15 @@ router.post(
 
       console.log("✅ User found in database");
       
-      // 🧪 TESTING MODE: ₹1 payment
-      // 🚀 PRODUCTION MODE: Change to 200 * 100 for ₹200
-      const PAYMENT_AMOUNT = 1; // Change this to 200 for production
-      
+      // 💰 Use configured amount
       const options = {
-        amount: PAYMENT_AMOUNT * 100, // Convert to paise
-        currency: "INR",
+        amount: PAYMENT_CONFIG.AMOUNT * 100, // Convert rupees to paise
+        currency: PAYMENT_CONFIG.CURRENCY,
         receipt: `order_rcptid_${Date.now()}`,
       };
 
-      console.log("💰 Creating order for ₹" + PAYMENT_AMOUNT);
+      console.log("💰 Creating order for ₹" + PAYMENT_CONFIG.AMOUNT);
+      console.log("🎁 Credits to be added: " + PAYMENT_CONFIG.CREDITS_PER_PAYMENT);
       console.log("🔑 Using Razorpay Key ID:", process.env.RAZORPAY_KEY_ID);
       
       // Check if using test or live mode
@@ -132,9 +157,9 @@ router.post(
   })
 );
 
-/* -------------------------------------------------------------------------- */
-/* ✅ POST /verify-payment (Verifies Signature & Updates Credits)             */
-/* -------------------------------------------------------------------------- */
+/* ========================================================================== */
+/* ✅ POST /verify-payment (Verifies Signature & Updates Credits)            */
+/* ========================================================================== */
 router.post(
   "/verify-payment",
   requireAuth(),
@@ -144,7 +169,14 @@ router.post(
     console.log("═".repeat(70));
     
     try {
-      const clerkId = req.auth.userId;
+      // ✅ Get Clerk user ID
+      const { userId: clerkId } = getAuth(req);
+      
+      if (!clerkId) {
+        console.error("❌ No Clerk ID found in request");
+        return res.status(401).json({ error: "Unauthorized - No Clerk ID" });
+      }
+
       const { razorpay_order_id, razorpay_payment_id, razorpay_signature } = req.body;
 
       console.log("👤 User ClerkID:", clerkId);
@@ -157,15 +189,19 @@ router.post(
         return res.status(400).json({ error: "Missing payment parameters." });
       }
 
+      // 🔍 Find user in database
       const user = await User.findOne({ clerkId });
+      
       if (!user) {
         console.error("❌ No user found for clerkId:", clerkId);
         return res.status(404).json({ error: "User not found." });
       }
 
       console.log("✅ User found in database");
+      console.log("👤 User MongoDB ID:", user._id);
+      console.log("💰 Current Credits BEFORE:", user.credits || 0);
 
-      // 🛡️ CHECK FOR DUPLICATE PAYMENT (NEW SECURITY FIX)
+      // 🛡️ CHECK FOR DUPLICATE PAYMENT
       const existingPayment = user.payments.find(
         p => p.razorpay_payment_id === razorpay_payment_id
       );
@@ -176,7 +212,7 @@ router.post(
         console.log("═".repeat(70) + "\n");
         return res.status(400).json({ 
           error: "Payment already processed.",
-          credits: user.credits 
+          newCredits: user.credits 
         });
       }
 
@@ -206,47 +242,78 @@ router.post(
         return res.status(400).json({ error: "Invalid signature." });
       }
 
-      // 💰 UPDATE CREDITS
-      console.log("💰 Current Credits:", user.credits || 0);
+      // 💰 UPDATE CREDITS - CRITICAL SECTION
+      console.log("💰 UPDATING CREDITS NOW...");
       
-      const CREDITS_TO_ADD = 10; // Change this if needed
-      user.credits = (user.credits || 0) + CREDITS_TO_ADD;
+      const oldCredits = user.credits || 0;
+      const newCredits = oldCredits + PAYMENT_CONFIG.CREDITS_PER_PAYMENT;
       
+      // ✅ Update credits
+      user.credits = newCredits;
+      
+      // ✅ Add payment record
       user.payments.push({
         razorpay_order_id,
         razorpay_payment_id,
-        amount: 1, // ₹1 for testing (change to 200 for production)
-        creditsAdded: CREDITS_TO_ADD,
+        amount: PAYMENT_CONFIG.AMOUNT,
+        creditsAdded: PAYMENT_CONFIG.CREDITS_PER_PAYMENT,
         status: "success",
         date: new Date(),
       });
 
       console.log("💾 Saving to database...");
-      await user.save({ validateBeforeSave: false });
+      console.log("📊 Old Credits:", oldCredits);
+      console.log("📊 New Credits:", newCredits);
+      console.log("📊 Credits Added:", PAYMENT_CONFIG.CREDITS_PER_PAYMENT);
+      
+      // ✅ FORCE SAVE with retry mechanism
+      try {
+        await user.save({ validateBeforeSave: false });
+        console.log("✅ First save attempt successful!");
+      } catch (saveErr) {
+        console.error("❌ First save failed, retrying...", saveErr.message);
+        // Retry once more
+        await user.save({ validateBeforeSave: false });
+        console.log("✅ Second save attempt successful!");
+      }
 
-      console.log("✅ DATABASE UPDATED SUCCESSFULLY!");
-      console.log("💰 New Credits:", user.credits);
-      console.log("📊 Total Payments:", user.payments.length);
+      // 🔍 VERIFY DATABASE UPDATE
+      const verifyUser = await User.findOne({ clerkId }).select("credits payments").lean();
+      console.log("🔍 VERIFICATION: Credits in DB:", verifyUser.credits);
+      console.log("🔍 VERIFICATION: Total Payments:", verifyUser.payments.length);
+
+      if (verifyUser.credits !== newCredits) {
+        console.error("❌ DATABASE VERIFICATION FAILED!");
+        console.error("Expected:", newCredits);
+        console.error("Got:", verifyUser.credits);
+        throw new Error("Database verification failed - credits mismatch");
+      }
+
+      console.log("✅ DATABASE UPDATED & VERIFIED SUCCESSFULLY!");
+      console.log("💰 Final Credits:", verifyUser.credits);
+      console.log("📊 Total Payments:", verifyUser.payments.length);
       console.log("═".repeat(70) + "\n");
 
-      res.json({
+      // ✅ Return success with verified credits
+      return res.status(200).json({
         success: true,
         message: "Payment verified successfully.",
-        newCredits: user.credits,
+        newCredits: verifyUser.credits,
       });
+      
     } catch (err) {
       console.error("❌ [VERIFY-PAYMENT] Error:", err.message);
       console.error("📋 Full Error:", err);
       console.error("📚 Stack Trace:", err.stack);
       console.log("═".repeat(70) + "\n");
-      res.status(500).json({ error: "Failed to verify payment." });
+      return res.status(500).json({ error: "Failed to verify payment." });
     }
   })
 );
 
-/* -------------------------------------------------------------------------- */
-/* 💳 POST /deduct-credits (Deduct credits when user uses AI feature)         */
-/* -------------------------------------------------------------------------- */
+/* ========================================================================== */
+/* 💳 POST /deduct-credits (Deduct credits when user uses AI feature)        */
+/* ========================================================================== */
 router.post(
   "/deduct-credits",
   requireAuth(),
@@ -313,9 +380,9 @@ router.post(
   })
 );
 
-/* -------------------------------------------------------------------------- */
-/* 📜 GET /user-payments (Fetch payment history)                              */
-/* -------------------------------------------------------------------------- */
+/* ========================================================================== */
+/* 📜 GET /user-payments (Fetch payment history)                             */
+/* ========================================================================== */
 router.get(
   "/user-payments",
   requireAuth(),
@@ -340,9 +407,9 @@ router.get(
   })
 );
 
-/* -------------------------------------------------------------------------- */
-/* 💡 HEALTH CHECK (Monitor Payment Circuit)                                  */
-/* -------------------------------------------------------------------------- */
+/* ========================================================================== */
+/* 💡 HEALTH CHECK (Monitor Payment Circuit)                                 */
+/* ========================================================================== */
 router.get("/payment-health", requireAuth(), async (req, res) => {
   res.json({
     healthy: isPaymentHealthy,
@@ -351,30 +418,26 @@ router.get("/payment-health", requireAuth(), async (req, res) => {
   });
 });
 
-/* -------------------------------------------------------------------------- */
-/* 🚀 STARTUP LOGS                                                            */
-/* -------------------------------------------------------------------------- */
+/* ========================================================================== */
+/* 🚀 STARTUP LOGS                                                           */
+/* ========================================================================== */
 console.log("\n" + "=".repeat(70));
 console.log("💳 RAZORPAY PAYMENT ROUTES LOADED");
 console.log("=".repeat(70));
 console.log("📍 Endpoints:");
-console.log("   POST   /api/create-order");
-console.log("   POST   /api/verify-payment");
-console.log("   POST   /api/deduct-credits");
-console.log("   GET    /api/user-payments");
-console.log("   GET    /api/payment-health");
+console.log("   POST   /payments/create-order");
+console.log("   POST   /payments/verify-payment");
+console.log("   POST   /payments/deduct-credits");
+console.log("   GET    /payments/user-payments");
+console.log("   GET    /payments/payment-health");
 console.log("=".repeat(70));
 console.log("🛡️  Features:");
 console.log("   • Secure HMAC Signature Verification");
-console.log("   • Duplicate Payment Prevention (NEW!)");
+console.log("   • Duplicate Payment Prevention");
+console.log("   • Database Verification After Save");
+console.log("   • Auto Retry on Save Failure");
+console.log("   • Circuit Breaker & Rate Limiting");
 console.log("   • Enhanced Logging for Debugging");
-console.log("   • Auto Credit Addition (+10 on success)");
-console.log("   • Credit Deduction for AI usage");
-console.log("   • Circuit Breaker & Bottleneck Safe");
-console.log("=".repeat(70));
-console.log("🧪 TESTING MODE:");
-console.log("   • Payment Amount: ₹1 (Change to ₹200 for production)");
-console.log("   • Credits Added: 10 per payment");
 console.log("=".repeat(70));
 console.log("🔑 Razorpay Configuration:");
 console.log("   • Key ID:", process.env.RAZORPAY_KEY_ID || "❌ NOT SET");
