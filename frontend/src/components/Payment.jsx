@@ -1,11 +1,11 @@
-// Payment.jsx - FIXED VERSION with proper polling
+// Payment.jsx - OPTIMIZED VERSION for all devices (mobile, tablet, desktop)
 
 import React, { useState, useEffect, useCallback, useMemo, useRef } from "react";
 import { useAuth, useUser } from "@clerk/clerk-react";
 import { useNavigate } from "react-router-dom";
 import {
   CreditCard, Sparkles, Loader2, AlertCircle, CheckCircle2,
-  Zap, Shield, TrendingUp, Star, ArrowRight, Coins, Lock
+  Zap, Shield, TrendingUp, Star, ArrowRight, Coins, Lock, Wifi, WifiOff
 } from "lucide-react";
 import axios from "axios";
 import CountUp from "react-countup";
@@ -23,23 +23,47 @@ export default function Payment() {
   const [success, setSuccess] = useState(null);
   const [loadingStage, setLoadingStage] = useState(0);
   
-  // 🔥 NEW: Polling state
+  // Polling state
   const [isPolling, setIsPolling] = useState(false);
   const [pollCount, setPollCount] = useState(0);
+  const [isOnline, setIsOnline] = useState(navigator.onLine);
   const pollingIntervalRef = useRef(null);
   const lastPaymentIdRef = useRef(null);
+  const pollStartTimeRef = useRef(null);
 
   const API_URL = import.meta.env.VITE_API_URL;
   const RAZORPAY_KEY = import.meta.env.VITE_RAZORPAY_KEY_ID;
+  const PAYMENT_CONFIG = { CREDITS_PER_PAYMENT: 10, AMOUNT: 200 };
+
+  // 🔥 Monitor network status
+  useEffect(() => {
+    const handleOnline = () => {
+      console.log("🌐 FRONTEND: Network online");
+      setIsOnline(true);
+    };
+    const handleOffline = () => {
+      console.log("🌐 FRONTEND: Network offline");
+      setIsOnline(false);
+      setError("Network connection lost. Please check your internet.");
+    };
+
+    window.addEventListener('online', handleOnline);
+    window.addEventListener('offline', handleOffline);
+
+    return () => {
+      window.removeEventListener('online', handleOnline);
+      window.removeEventListener('offline', handleOffline);
+    };
+  }, []);
 
   const loadingStages = useMemo(() => [
     { icon: Shield, text: "Initializing secure payment...", color: "from-blue-500 to-cyan-500" },
     { icon: CreditCard, text: "Creating payment order...", color: "from-purple-500 to-pink-500" },
-    { icon: Lock, text: "Encrypting transaction...", color: "from-orange-500 to-red-500" },
-    { icon: CheckCircle2, text: "Processing payment...", color: "from-green-500 to-emerald-500" },
+    { icon: Lock, text: "Opening payment gateway...", color: "from-orange-500 to-red-500" },
+    { icon: CheckCircle2, text: "Verifying payment...", color: "from-green-500 to-emerald-500" },
   ], []);
 
-  // 🔥 NEW: Stop polling function
+  // Stop polling
   const stopPolling = useCallback(() => {
     if (pollingIntervalRef.current) {
       console.log("🛑 FRONTEND: Stopping poll");
@@ -47,36 +71,58 @@ export default function Payment() {
       pollingIntervalRef.current = null;
       setIsPolling(false);
       setPollCount(0);
+      pollStartTimeRef.current = null;
     }
   }, []);
 
-  // 🔥 NEW: Poll for credit updates
+  // 🔥 OPTIMIZED: Smart polling with exponential backoff
   const pollForCreditUpdate = useCallback(async (paymentId, expectedCredits) => {
-    console.log("🔄 FRONTEND: Starting credit update polling...");
+    console.log("🔄 FRONTEND: Starting smart polling...");
     console.log("   Payment ID:", paymentId);
     console.log("   Expected Credits:", expectedCredits);
     
+    if (!navigator.onLine) {
+      console.error("❌ FRONTEND: Offline - cannot poll");
+      setError("No internet connection. Credits will be updated when you're back online.");
+      setIsLoading(false);
+      setLoadingStage(0);
+      return;
+    }
+    
     setIsPolling(true);
     lastPaymentIdRef.current = paymentId;
+    pollStartTimeRef.current = Date.now();
     
-    const MAX_POLLS = 20; // Poll for 20 seconds max
+    const MAX_POLLS = 15; // Reduced from 20
+    const POLL_INTERVALS = [500, 500, 1000, 1000, 2000, 2000, 3000]; // Smart intervals
     let pollAttempt = 0;
+    let consecutiveFailures = 0;
     
-    pollingIntervalRef.current = setInterval(async () => {
+    const poll = async () => {
+      if (!navigator.onLine) {
+        console.warn("⚠️  FRONTEND: Lost connection during polling");
+        stopPolling();
+        setError("Connection lost. Please check your credits after reconnecting.");
+        setIsLoading(false);
+        return;
+      }
+
       pollAttempt++;
       setPollCount(pollAttempt);
       
-      console.log(`📊 FRONTEND: Poll attempt ${pollAttempt}/${MAX_POLLS}`);
+      const elapsed = ((Date.now() - pollStartTimeRef.current) / 1000).toFixed(1);
+      console.log(`📊 Poll ${pollAttempt}/${MAX_POLLS} (${elapsed}s elapsed)`);
       
       try {
         const token = await getToken();
         if (!token) {
           console.error("❌ FRONTEND: No token during polling");
           stopPolling();
+          setError("Session expired. Please log in again.");
+          setIsLoading(false);
           return;
         }
 
-        // Check credit status
         const response = await axios.get(
           `${API_URL}/payments/user-payments`,
           {
@@ -84,15 +130,17 @@ export default function Payment() {
               Authorization: `Bearer ${token}`,
               'Content-Type': 'application/json'
             },
-            timeout: 10000
+            timeout: 8000 // 8 second timeout per request
           }
         );
 
         const currentCredits = response.data?.credits || 0;
-        console.log(`   Current credits: ${currentCredits} (expected: ${expectedCredits})`);
+        console.log(`   Current: ${currentCredits} | Expected: ${expectedCredits}`);
 
         if (currentCredits >= expectedCredits) {
-          console.log("✅ FRONTEND: Credits updated successfully!");
+          console.log("✅ FRONTEND: Credits confirmed!");
+          console.log(`   Total time: ${elapsed}s`);
+          
           setCredits(currentCredits);
           setPayments(response.data?.payments || []);
           setSuccess(`Payment successful! ${PAYMENT_CONFIG.CREDITS_PER_PAYMENT} credits added.`);
@@ -100,29 +148,69 @@ export default function Payment() {
           setLoadingStage(0);
           stopPolling();
           
-          // Clear success message after 5 seconds
           setTimeout(() => setSuccess(null), 5000);
-        } else if (pollAttempt >= MAX_POLLS) {
-          console.error("❌ FRONTEND: Polling timeout - credits not updated");
-          setError("Credits not updated. Please refresh or contact support.");
-          setIsLoading(false);
-          setLoadingStage(0);
-          stopPolling();
+          return;
         }
+
+        consecutiveFailures = 0; // Reset on success
         
       } catch (err) {
-        console.error("❌ FRONTEND: Polling error:", err.message);
+        consecutiveFailures++;
+        console.error(`❌ Poll ${pollAttempt} failed:`, err.message);
         
-        if (pollAttempt >= MAX_POLLS) {
-          setError("Failed to verify credit update. Please refresh the page.");
+        // If 3 consecutive failures, assume network issue
+        if (consecutiveFailures >= 3) {
+          console.error("❌ FRONTEND: Multiple failures - network issue?");
+          stopPolling();
+          setError("Connection unstable. Credits will update automatically. Please refresh.");
           setIsLoading(false);
           setLoadingStage(0);
-          stopPolling();
+          return;
         }
       }
-    }, 1000); // Poll every 1 second
+
+      // Check if we should continue
+      if (pollAttempt >= MAX_POLLS) {
+        console.error("❌ FRONTEND: Polling timeout");
+        stopPolling();
+        
+        // Show helpful message instead of error
+        setSuccess("Payment processing! Credits will appear shortly. You can close this page.");
+        setError(null);
+        setIsLoading(false);
+        setLoadingStage(0);
+        
+        // Try one final refresh after 5 seconds
+        setTimeout(async () => {
+          try {
+            const token = await getToken();
+            const response = await axios.get(`${API_URL}/payments/user-payments`, {
+              headers: { Authorization: `Bearer ${token}` }
+            });
+            setCredits(response.data?.credits || 0);
+            setPayments(response.data?.payments || []);
+            if (response.data?.credits >= expectedCredits) {
+              setSuccess("Credits updated successfully!");
+            }
+          } catch (e) {
+            console.error("Final refresh failed:", e);
+          }
+        }, 5000);
+        
+        return;
+      }
+
+      // Schedule next poll with exponential backoff
+      const nextInterval = POLL_INTERVALS[Math.min(pollAttempt, POLL_INTERVALS.length - 1)];
+      console.log(`   Next poll in ${nextInterval}ms`);
+      
+      pollingIntervalRef.current = setTimeout(poll, nextInterval);
+    };
     
-  }, [getToken, API_URL, stopPolling]);
+    // Start polling
+    poll();
+    
+  }, [getToken, API_URL, stopPolling, PAYMENT_CONFIG.CREDITS_PER_PAYMENT]);
 
   // Cleanup on unmount
   useEffect(() => {
@@ -132,33 +220,19 @@ export default function Payment() {
   }, [stopPolling]);
 
   useEffect(() => {
-    console.log("\n" + "═".repeat(70));
-    console.log("🎨 FRONTEND: Payment Component Mounted");
-    console.log("═".repeat(70));
-    console.log("👤 Is Signed In:", isSignedIn);
-    console.log("👤 User ID:", userId);
-    
     if (authLoaded && !isSignedIn) {
-      console.error("❌ FRONTEND: User not authenticated!");
       navigate("/sign-in");
     }
-    
-    console.log("═".repeat(70) + "\n");
-  }, [authLoaded, isSignedIn, userId, navigate]);
+  }, [authLoaded, isSignedIn, navigate]);
 
   const fetchUserData = useCallback(async () => {
     try {
       setIsFetchingData(true);
       
-      if (!isSignedIn) {
-        console.error("❌ FRONTEND: Not signed in");
-        return;
-      }
+      if (!isSignedIn) return;
 
       const token = await getToken();
-      
       if (!token) {
-        console.error("❌ FRONTEND: No token");
         setError("Session expired. Please log in again.");
         setTimeout(() => navigate("/sign-in"), 2000);
         return;
@@ -168,11 +242,9 @@ export default function Payment() {
         headers: { 
           Authorization: `Bearer ${token}`,
           'Content-Type': 'application/json'
-        }
+        },
+        timeout: 10000
       });
-
-      console.log("✅ FRONTEND: User data fetched");
-      console.log("💰 Current Credits:", response.data?.credits || 0);
 
       setCredits(response.data?.credits || 0);
       setPayments(response.data?.payments || []);
@@ -182,6 +254,8 @@ export default function Payment() {
       if (err.response?.status === 401) {
         setError("Session expired. Please log in again.");
         setTimeout(() => navigate("/sign-in"), 2000);
+      } else if (err.code === 'ECONNABORTED') {
+        setError("Connection timeout. Please check your internet.");
       }
     } finally {
       setIsFetchingData(false);
@@ -198,22 +272,20 @@ export default function Payment() {
     return new Promise((resolve) => {
       const existingScript = document.getElementById("razorpay-sdk");
       if (existingScript) {
-        console.log("✅ FRONTEND: Razorpay script already loaded");
         resolve(true);
         return;
       }
 
-      console.log("📦 FRONTEND: Loading Razorpay SDK...");
       const script = document.createElement("script");
       script.id = "razorpay-sdk";
       script.src = "https://checkout.razorpay.com/v1/checkout.js";
       script.async = true;
       script.onload = () => {
-        console.log("✅ FRONTEND: Razorpay SDK loaded");
+        console.log("✅ Razorpay SDK loaded");
         resolve(true);
       };
       script.onerror = () => {
-        console.error("❌ FRONTEND: Failed to load Razorpay SDK");
+        console.error("❌ Failed to load Razorpay SDK");
         resolve(false);
       };
       document.body.appendChild(script);
@@ -221,40 +293,40 @@ export default function Payment() {
   }, []);
 
   const handlePayment = async () => {
-    console.log("\n" + "═".repeat(70));
-    console.log("🎯 FRONTEND: PAYMENT PROCESS STARTED");
-    console.log("═".repeat(70));
+    console.log("🎯 FRONTEND: Payment started");
+    
+    // Check network first
+    if (!navigator.onLine) {
+      setError("No internet connection. Please connect and try again.");
+      return;
+    }
     
     setIsLoading(true);
     setError(null);
     setSuccess(null);
     setLoadingStage(0);
-    stopPolling(); // Stop any existing polling
+    stopPolling();
 
     try {
-      // Verify auth state
       if (!authLoaded || !isSignedIn || !userId) {
         throw new Error("Please sign in to continue");
       }
 
-      // Get auth token
       const token = await getToken();
       if (!token) {
         throw new Error("Session expired. Please log in again.");
       }
 
-      // Stage 1: Load Razorpay SDK
+      // Stage 1: Load SDK
       setLoadingStage(0);
       const scriptLoaded = await loadRazorpayScript();
       if (!scriptLoaded) {
-        throw new Error("Failed to load payment gateway");
+        throw new Error("Failed to load payment gateway. Check your connection.");
       }
-      await new Promise((resolve) => setTimeout(resolve, 500));
+      await new Promise((resolve) => setTimeout(resolve, 300));
 
       // Stage 2: Create order
       setLoadingStage(1);
-      console.log("📞 FRONTEND: Creating order...");
-      
       const orderResponse = await axios.post(
         `${API_URL}/payments/create-order`,
         {},
@@ -263,18 +335,16 @@ export default function Payment() {
             Authorization: `Bearer ${token}`,
             'Content-Type': 'application/json'
           },
-          timeout: 30000
+          timeout: 15000
         }
       );
 
-      console.log("✅ FRONTEND: Order created");
       const { orderId, amount, currency, key } = orderResponse.data;
-      
       if (!orderId) {
-        throw new Error("Failed to create payment order");
+        throw new Error("Failed to create order. Please try again.");
       }
 
-      await new Promise((resolve) => setTimeout(resolve, 500));
+      await new Promise((resolve) => setTimeout(resolve, 300));
 
       // Stage 3: Open Razorpay
       setLoadingStage(2);
@@ -287,14 +357,8 @@ export default function Payment() {
         description: "10 Resume Credits",
         order_id: orderId,
         
-        // 🔥 CRITICAL: Payment success handler
         handler: async (response) => {
-          console.log("\n" + "═".repeat(70));
-          console.log("✅ FRONTEND: RAZORPAY PAYMENT SUCCESSFUL!");
-          console.log("═".repeat(70));
-          console.log("🆔 Payment ID:", response.razorpay_payment_id);
-          console.log("═".repeat(70) + "\n");
-          
+          console.log("✅ Payment captured by Razorpay");
           setLoadingStage(3);
           await verifyPayment(response);
         },
@@ -309,19 +373,22 @@ export default function Payment() {
         },
         modal: {
           ondismiss: () => {
-            console.warn("⚠️  FRONTEND: User closed payment modal");
+            console.warn("⚠️  User closed payment modal");
             setIsLoading(false);
             setLoadingStage(0);
           },
+          confirm_close: true,
         },
+        retry: {
+          enabled: true,
+          max_count: 3
+        }
       };
 
       const razorpay = new window.Razorpay(options);
       
       razorpay.on('payment.failed', function (response) {
-        console.error("❌ FRONTEND: RAZORPAY PAYMENT FAILED!");
-        console.error("Error:", response.error.description);
-        
+        console.error("❌ Payment failed:", response.error.description);
         setError(`Payment failed: ${response.error.description}`);
         setIsLoading(false);
         setLoadingStage(0);
@@ -331,11 +398,13 @@ export default function Payment() {
       setIsLoading(false);
       
     } catch (err) {
-      console.error("❌ FRONTEND: PAYMENT ERROR:", err.message);
+      console.error("❌ Payment error:", err.message);
       
       let errorMessage = "Payment failed. Please try again.";
       
-      if (err.response?.status === 401) {
+      if (err.code === 'ECONNABORTED' || err.message.includes('timeout')) {
+        errorMessage = "Connection timeout. Please check your internet and try again.";
+      } else if (err.response?.status === 401) {
         errorMessage = "Session expired. Please log in again.";
         setTimeout(() => navigate("/sign-in"), 2000);
       } else if (err.message) {
@@ -348,12 +417,9 @@ export default function Payment() {
     }
   };
 
-  // 🔥 FIXED: Verify payment with polling
   const verifyPayment = async (paymentResponse) => {
     try {
-      console.log("\n" + "═".repeat(70));
       console.log("📞 FRONTEND: Verifying payment...");
-      console.log("═".repeat(70));
 
       const token = await getToken();
       if (!token) {
@@ -361,11 +427,7 @@ export default function Payment() {
       }
 
       const currentCredits = credits;
-      const expectedCredits = currentCredits + 10; // PAYMENT_CONFIG.CREDITS_PER_PAYMENT
-
-      console.log("📊 FRONTEND: Credit expectations:");
-      console.log("   Current:", currentCredits);
-      console.log("   Expected after payment:", expectedCredits);
+      const expectedCredits = currentCredits + PAYMENT_CONFIG.CREDITS_PER_PAYMENT;
 
       const response = await axios.post(
         `${API_URL}/payments/verify-payment`,
@@ -379,32 +441,34 @@ export default function Payment() {
             Authorization: `Bearer ${token}`,
             'Content-Type': 'application/json'
           },
-          timeout: 30000
+          timeout: 15000
         }
       );
 
-      console.log("✅ FRONTEND: Payment verified!");
-      console.log("📋 Response:", response.data);
+      console.log("✅ Payment verified by backend");
 
-      // 🔥 NEW: Start polling for credit update
-      console.log("🔄 FRONTEND: Starting credit verification polling...");
+      // Start smart polling
       await pollForCreditUpdate(paymentResponse.razorpay_payment_id, expectedCredits);
       
     } catch (err) {
-      console.error("❌ FRONTEND: VERIFICATION FAILED!");
-      console.error("Error:", err.message);
-      console.error("Response:", err.response?.data);
+      console.error("❌ Verification failed:", err.message);
       
       let errorMessage = "Payment verification failed.";
       
-      if (err.response?.status === 401) {
-        errorMessage = "Session expired. Please contact support with your payment ID.";
+      if (err.code === 'ECONNABORTED') {
+        errorMessage = "Connection timeout during verification. Credits will update automatically.";
+        // Still try to poll
+        const expectedCredits = credits + PAYMENT_CONFIG.CREDITS_PER_PAYMENT;
+        pollForCreditUpdate(paymentResponse.razorpay_payment_id, expectedCredits);
+      } else if (err.response?.status === 401) {
+        errorMessage = "Session expired. Please log in and check your credits.";
+        setTimeout(() => navigate("/sign-in"), 2000);
       } else if (err.response?.data?.error) {
         errorMessage = err.response.data.error;
       }
       
       if (err.response?.data?.needsManualIntervention) {
-        errorMessage += " Your payment was processed. If credits don't appear, contact support.";
+        errorMessage += " Contact support if credits don't appear.";
       }
       
       setError(errorMessage);
@@ -443,11 +507,18 @@ export default function Payment() {
   }
 
   const CurrentStageIcon = loadingStages[loadingStage]?.icon || Shield;
-  const PAYMENT_CONFIG = { CREDITS_PER_PAYMENT: 10 };
 
   return (
     <div className="min-h-screen flex items-center justify-center bg-gradient-to-br from-slate-900 via-purple-900 to-slate-900 p-4 sm:p-6 pt-24 sm:pt-32 relative overflow-hidden">
       
+      {/* Network Status Indicator */}
+      {!isOnline && (
+        <div className="fixed top-20 left-1/2 transform -translate-x-1/2 z-50 bg-red-500/90 backdrop-blur-md px-6 py-3 rounded-full flex items-center space-x-2 shadow-lg animate-pulse">
+          <WifiOff className="w-5 h-5 text-white" />
+          <span className="text-white font-medium">No Internet Connection</span>
+        </div>
+      )}
+
       {/* Animated Background */}
       <div className="absolute top-20 left-10 w-72 h-72 bg-purple-500 rounded-full mix-blend-multiply filter blur-3xl opacity-20 animate-blob"></div>
       <div className="absolute top-40 right-10 w-72 h-72 bg-violet-500 rounded-full mix-blend-multiply filter blur-3xl opacity-20 animate-blob animation-delay-2000"></div>
@@ -468,7 +539,7 @@ export default function Payment() {
         </div>
 
         <div className="grid grid-cols-1 lg:grid-cols-3 gap-6 mb-8">
-          {/* Current Credits Card */}
+          {/* Credits Card */}
           <div className="relative group">
             <div className="absolute -inset-1 bg-gradient-to-r from-violet-600 to-purple-600 rounded-2xl blur-xl opacity-50 group-hover:opacity-75 transition"></div>
             <div className="relative bg-white/10 backdrop-blur-2xl border border-white/20 rounded-2xl p-6 shadow-2xl">
@@ -508,13 +579,13 @@ export default function Payment() {
                   <div className="text-center space-y-2">
                     <p className="text-white text-xl font-semibold animate-pulse">
                       {isPolling 
-                        ? `Verifying credit update... (${pollCount}s)`
+                        ? `Confirming credits... (${pollCount})`
                         : loadingStages[loadingStage]?.text || "Processing..."
                       }
                     </p>
                     {isPolling && (
                       <p className="text-gray-400 text-sm">
-                        Please wait while we confirm your credits
+                        Please wait while we verify your payment
                       </p>
                     )}
                   </div>
@@ -531,7 +602,7 @@ export default function Payment() {
                   <p className="text-gray-300 text-sm">Perfect for job seekers</p>
                 </div>
                 <div className="text-right">
-                  <div className="text-4xl font-bold text-white">₹200</div>
+                  <div className="text-4xl font-bold text-white">₹{PAYMENT_CONFIG.AMOUNT}</div>
                   <p className="text-gray-400 text-sm">One-time</p>
                 </div>
               </div>
@@ -542,7 +613,7 @@ export default function Payment() {
                   { icon: Zap, text: "10 Resume Customizations" },
                   { icon: TrendingUp, text: "AI-Powered Job Matching" },
                   { icon: Shield, text: "Secure Payment Gateway" },
-                  { icon: Sparkles, text: "Priority Processing" },
+                  { icon: Sparkles, text: "Instant Credit Update" },
                 ].map((feature, idx) => (
                   <div key={idx} className="flex items-center space-x-3 text-gray-200">
                     <feature.icon className="w-5 h-5 text-violet-400 flex-shrink-0" />
@@ -569,11 +640,16 @@ export default function Payment() {
               {/* Payment Button */}
               <button
                 onClick={handlePayment}
-                disabled={isLoading || !isSignedIn || isPolling}
+                disabled={isLoading || !isSignedIn || isPolling || !isOnline}
                 className="group relative w-full py-4 px-6 rounded-xl font-semibold text-lg overflow-hidden transition-all duration-300 bg-gradient-to-r from-violet-600 to-indigo-600 hover:shadow-2xl hover:shadow-violet-500/50 hover:scale-[1.02] active:scale-[0.98] disabled:opacity-50 disabled:cursor-not-allowed"
               >
                 <span className="relative z-10 flex items-center justify-center space-x-3 text-white">
-                  {isLoading || isPolling ? (
+                  {!isOnline ? (
+                    <>
+                      <WifiOff className="w-6 h-6" />
+                      <span>No Internet Connection</span>
+                    </>
+                  ) : isLoading || isPolling ? (
                     <>
                       <Loader2 className="w-6 h-6 animate-spin" />
                       <span>Processing...</span>
@@ -581,7 +657,7 @@ export default function Payment() {
                   ) : (
                     <>
                       <CreditCard className="w-6 h-6" />
-                      <span>Buy 10 Credits - ₹200</span>
+                      <span>Buy {PAYMENT_CONFIG.CREDITS_PER_PAYMENT} Credits - ₹{PAYMENT_CONFIG.AMOUNT}</span>
                       <ArrowRight className="w-6 h-6 group-hover:translate-x-1 transition-transform" />
                     </>
                   )}
@@ -589,7 +665,7 @@ export default function Payment() {
               </button>
 
               <p className="text-center text-xs text-gray-400 mt-4">
-                🔒 Secured by Razorpay • 100% Safe & Encrypted
+                🔒 Secured by Razorpay • Works on all devices
               </p>
             </div>
           </div>
@@ -621,7 +697,9 @@ export default function Payment() {
                       </p>
                     </div>
                     <div className="text-right">
-                      <p className="text-green-400 text-sm font-medium">+{payment.creditsAdded} credits</p>
+                      <p className="text-green-400 text-sm font-medium">
+                        {payment.creditsAdded > 0 ? '+' : ''}{payment.creditsAdded} credits
+                      </p>
                       <p className="text-gray-400 text-xs capitalize">{payment.status}</p>
                     </div>
                   </div>
