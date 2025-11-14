@@ -19,11 +19,11 @@ export default function Navbar() {
   }, []);
 
   const navItems = [
-    { icon: Home, label: "Dashboard", path: "/" },
-    { icon: Upload, label: "Upload", path: "/upload" },
-    { icon: FileText, label: "Job Description", path: "/description" },
-    { icon: Sparkles, label: "Customize", path: "/customize-resume" },
-    { icon: CreditCard, label: "Credits", path: "/payment" },
+    //{ icon: Home, label: "Dashboard", path: "/" },
+    //{ icon: Upload, label: "Upload", path: "/upload" },
+    //{ icon: FileText, label: "Job Description", path: "/description" },
+    //{ icon: Sparkles, label: "Customize", path: "/customize-resume" },
+    //{ icon: CreditCard, label: "Credits", path: "/payment" },
   ];
 
   const isActive = (path) => location.pathname === path;
