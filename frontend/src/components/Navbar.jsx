@@ -89,7 +89,7 @@ export default function Navbar() {
               {/* Brand Name with Premium Typography */}
               <div className="flex flex-col">
                 <span className="text-2xl font-black bg-gradient-to-r from-violet-400 via-purple-400 to-fuchsia-400 bg-clip-text text-transparent leading-tight tracking-tight group-hover:tracking-wide transition-all duration-300">
-                  ResuneXi
+                  ResuNexi
                 </span>
                 <span className="text-[9px] text-violet-400/70 -mt-1 tracking-[0.2em] uppercase font-semibold">
                   Second chance for dreams
