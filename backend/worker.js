@@ -112,6 +112,34 @@ async function runNLPExtraction(resumeText) {
 /* -------------------------------------------------------------------------- */
 /*                           Text Extraction Helpers                          */
 /* -------------------------------------------------------------------------- */
+// async function extractFromPDF(fileBuffer, tempFilePath) {
+//   try {
+//     const { stdout } = await execPromise(`pdftotext "${tempFilePath}" -`);
+//     if (stdout && stdout.trim().length > 100) {
+//       console.log("✅ Extracted PDF via pdftotext");
+//       return { text: stdout, method: "pdftotext" };
+//     }
+//   } catch {
+//     console.warn("⚠️ pdftotext failed, trying pdf-parse...");
+//   }
+
+//   const pdfParse = require("pdf-parse");
+//   const pdfData = await pdfParse(fileBuffer);
+//   if (pdfData.text.trim().length > 100) {
+//     console.log("✅ Extracted PDF via pdf-parse");
+//     return { text: pdfData.text, method: "pdf-parse" };
+//   }
+
+//   console.log("🖼️ Using OCR for scanned PDF...");
+//   const { data: { text } } = await Tesseract.recognize(tempFilePath, "eng");
+//   if (text.trim().length < 50) throw new Error("OCR produced insufficient text");
+//   return { text, method: "ocr" };
+// }
+
+
+/* -------------------------------------------------------------------------- */
+/*                           Text Extraction Helpers                          */
+/* -------------------------------------------------------------------------- */
 async function extractFromPDF(fileBuffer, tempFilePath) {
   try {
     const { stdout } = await execPromise(`pdftotext "${tempFilePath}" -`);
@@ -123,11 +151,20 @@ async function extractFromPDF(fileBuffer, tempFilePath) {
     console.warn("⚠️ pdftotext failed, trying pdf-parse...");
   }
 
-  const pdfParse = require("pdf-parse");
-  const pdfData = await pdfParse(fileBuffer);
-  if (pdfData.text.trim().length > 100) {
-    console.log("✅ Extracted PDF via pdf-parse");
-    return { text: pdfData.text, method: "pdf-parse" };
+  try {
+    const pdfParseModule = require("pdf-parse");
+    // Handle both default and direct exports
+    const pdfParse = typeof pdfParseModule === 'function' 
+      ? pdfParseModule 
+      : pdfParseModule.default;
+    
+    const pdfData = await pdfParse(fileBuffer);
+    if (pdfData.text.trim().length > 100) {
+      console.log("✅ Extracted PDF via pdf-parse");
+      return { text: pdfData.text, method: "pdf-parse" };
+    }
+  } catch (error) {
+    console.warn("⚠️ pdf-parse failed:", error.message);
   }
 
   console.log("🖼️ Using OCR for scanned PDF...");
@@ -135,6 +172,8 @@ async function extractFromPDF(fileBuffer, tempFilePath) {
   if (text.trim().length < 50) throw new Error("OCR produced insufficient text");
   return { text, method: "ocr" };
 }
+
+
 
 async function extractFromDOCX(fileBuffer) {
   const result = await mammoth.extractRawText({ buffer: fileBuffer });
@@ -280,7 +319,7 @@ const resumeProcessingWorker = new Worker(
 /* -------------------------------------------------------------------------- */
 const genAI = new GoogleGenerativeAI(process.env.GEMINI_API_KEY);
 const model = genAI.getGenerativeModel({
-  model: "gemini-2.5-flash",
+  model: "gemini-2.5-flash-lite",
 });
 
 /* -------------------------------------------------------------------------- */
