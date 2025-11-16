@@ -1,5 +1,5 @@
 import React, { useState } from 'react';
-import { MapPin, ChevronRight, X } from 'lucide-react';
+import { ChevronRight, X } from 'lucide-react';
 
 export default function Footer() {
   const [modalContent, setModalContent] = useState(null);
@@ -36,14 +36,14 @@ We may use third-party services for analytics and payment processing. These serv
 You have the right to access, modify, or delete your personal information at any time.
 
 6. Contact Us
-For privacy concerns, contact us at support@secondchance.com`
+For privacy concerns, contact us at support@resunexi.com`
     },
     terms: {
       title: "Terms of Service",
       content: `Last Updated: ${new Date().toLocaleDateString()}
 
 1. Acceptance of Terms
-By accessing Second Chance, you agree to these Terms of Service.
+By accessing Resunexi, you agree to these Terms of Service.
 
 2. Use License
 We grant you a limited, non-exclusive license to use our platform for personal career development.
@@ -58,7 +58,7 @@ We grant you a limited, non-exclusive license to use our platform for personal c
 We strive for 99.9% uptime but do not guarantee uninterrupted service.
 
 5. Limitation of Liability
-Second Chance is not liable for indirect, incidental, or consequential damages.
+Resunexi is not liable for indirect, incidental, or consequential damages.
 
 6. Modifications
 We reserve the right to modify these terms at any time.`
@@ -110,7 +110,7 @@ By using our site, you consent to our use of cookies as described.`
             {/* Company Info */}
             <div>
               <h2 className="text-2xl font-bold bg-gradient-to-r from-violet-400 via-purple-400 to-pink-400 bg-clip-text text-transparent mb-3">
-                Second Chance
+                Resunexi
               </h2>
               <p className="text-gray-400 text-sm leading-relaxed">
                 Empowering careers with AI-powered resume optimization and job matching.
@@ -158,33 +158,11 @@ By using our site, you consent to our use of cookies as described.`
             </div>
           </div>
 
-          {/* Headquarters */}
-          <div className="border-t border-purple-500/20 pt-8 mb-8">
-            <div className="max-w-md">
-              <div className="bg-white/5 backdrop-blur-lg border border-purple-500/20 rounded-xl p-5 hover:bg-white/10 transition-all">
-                <div className="flex items-start gap-3">
-                  <div className="p-2 bg-purple-600/20 rounded-lg flex-shrink-0">
-                    <MapPin className="w-5 h-5 text-purple-400" />
-                  </div>
-                  <div>
-                    <h4 className="text-white font-semibold mb-2 text-sm">Headquarters</h4>
-                    <p className="text-gray-400 text-sm leading-relaxed">
-                      Bay Adelaide Centre<br />
-                      333 Bay Street, Suite 3400<br />
-                      Toronto, ON M5H 2R2<br />
-                      Canada
-                    </p>
-                  </div>
-                </div>
-              </div>
-            </div>
-          </div>
-
           {/* Copyright */}
           <div className="border-t border-purple-500/20 pt-6">
             <div className="text-center">
               <p className="text-gray-400 text-sm">
-                © {new Date().getFullYear()} Second Chance. All rights reserved.
+                © {new Date().getFullYear()} Resunexi. All rights reserved.
               </p>
             </div>
           </div>
